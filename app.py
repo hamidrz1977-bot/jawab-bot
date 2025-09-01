@@ -1,51 +1,58 @@
 import os
-from flask import Flask, request
+import requests
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-@app.route("/")
-def home():
-    return "Hello from Jawab! ✅"
+# هر دو اسم را پشتیبانی کن
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TG_BOT_TOKEN")
+API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage" if BOT_TOKEN else None
 
-@app.route("/webhook", methods=["GET", "POST"])
-def webhook():
+WELCOME = (
+    "سلام! من Jawab هستم 👋 | Hello! I’m Jawab.\n"
+    "گزینه‌ها: 1) منو  2) پشتیبانی  3) دربارهٔ ما"
+)
+KEYBOARD = {
+    "keyboard": [
+        [{"text": "منو 🗂"}, {"text": "پشتیبانی 🆘"}],
+        [{"text": "دربارهٔ ما ℹ️"}],
+    ],
+    "resize_keyboard": True,
+}
+
+@app.route("/health", methods=["GET", "HEAD"])
+def health():
+    return jsonify(status="ok")
+
+@app.route("/telegram", methods=["GET", "POST"])
+def telegram():
+    # اجازه بده GET برگرده 200 تا پروب‌ها 404 نگیرن
     if request.method == "GET":
-        mode = request.args.get("hub.mode")
-        challenge = request.args.get("hub.challenge")
-        token = request.args.get("hub.verify_token")
-        verify_token = os.getenv("VERIFY_TOKEN", "CHANGE_ME")
-        if mode == "subscribe" and token == verify_token:
-            return challenge, 200
-        return "Verification failed", 403
+        return "OK", 200
 
-    # POST: فعلاً فقط تأیید دریافت
-    return "EVENT_RECEIVED", 200
+    if not BOT_TOKEN:
+        return jsonify({"error": "TELEGRAM_BOT_TOKEN missing"}), 500
+
+    update = request.get_json(silent=True) or {}
+    message = update.get("message") or update.get("edited_message") or {}
+    chat_id = (message.get("chat") or {}).get("id")
+    text = (message.get("text") or "").strip()
+
+    if not chat_id:
+        return jsonify({"ok": True})
+
+    if text == "/start":
+        payload = {"chat_id": chat_id, "text": WELCOME, "reply_markup": KEYBOARD}
+    else:
+        payload = {"chat_id": chat_id, "text": f"گفتی: {text}"}
+
+    r = requests.post(API, json=payload, timeout=10)
+    return jsonify({"ok": True, "telegram_status": r.status_code})
+
+@app.route("/", methods=["GET"])
+def root():
+    return "Jawab bot is running."
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
-# --- Telegram webhook (Jawab) ---
-import os, requests
-from flask import request, jsonify
-
-TG_TOKEN = os.getenv("TG_BOT_TOKEN")
-
-@app.route("/telegram", methods=["POST"])
-def telegram_webhook():
-    data = request.get_json(silent=True) or {}
-    try:
-        if "message" in data:
-            chat_id = data["message"]["chat"]["id"]
-            text = data["message"].get("text", "")
-            send_telegram_text(chat_id, f"سلام از Jawab 👋\nپیام شما رسید: {text}")
-    except Exception as e:
-        app.logger.exception(e)
-    return jsonify(ok=True)
-
-def send_telegram_text(chat_id, text):
-    if not TG_TOKEN:
-        app.logger.warning("TG_BOT_TOKEN not set; skipping Telegram send.")
-        return
-    url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text}
-    r = requests.post(url, json=payload, timeout=15)
-    app.logger.info(f"TG SEND RESP: {r.status_code} {r.text}")
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
