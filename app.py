@@ -1,222 +1,254 @@
-if text.startswith("/start"):
-    parts = text.split(" ", 1)
-    if len(parts) == 2 and parts[1].strip():
-        from storage.db import set_user_source
-        set_user_source(chat_id, parts[1].strip())
-import os, time, logging, json
-from collections import defaultdict, deque
-import requests
+import os, requests, time, csv, io
 from flask import Flask, request, jsonify
 
-# --- DB imports (حتماً بالای فایل) ---
-from storage.db import init_db, upsert_user, get_user_lang, set_user_lang, log_message, get_stats, list_user_ids
-init_db()  # دیتابیس همان لحظه ایجاد می‌شود
+# ---------- ENV ----------
+BOT_TOKEN = os.environ.get("TG_BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN")
+API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage" if BOT_TOKEN else None
+
+BRAND_NAME = os.environ.get("BRAND_NAME", "Jawab")
+DEFAULT_LANG = (os.environ.get("DEFAULT_LANG") or "FA").upper()
+SUPPORT_WHATSAPP = os.environ.get("SUPPORT_WHATSAPP", "")
+ADMINS = [x.strip() for x in (os.environ.get("ADMINS") or "").split(",") if x.strip()]
+PLAN = (os.environ.get("PLAN") or "bronze").lower()
+SHEET_URL = os.environ.get("SHEET_URL", "").strip()   # برای Silver
+
+# ---------- DB ----------
+from storage.db import (
+    init_db, upsert_user, get_user_lang, set_user_lang,
+    log_message, get_stats, list_user_ids, set_user_source
+)
+init_db()
 
 app = Flask(__name__)
 
-# ----- ENV -----
-# هر دو نام را پشتیبانی می‌کنیم: TELEGRAM_BOT_TOKEN یا TG_BOT_TOKEN
-BOT_TOKEN = (os.environ.get("TG_BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
-if not BOT_TOKEN:
-    raise RuntimeError("ENV TG_BOT_TOKEN (or TELEGRAM_BOT_TOKEN) is missing.")
-TG_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
-ADMINS_ENV = os.environ.get("ADMINS", "").strip()
-ADMINS = {int(x) for x in ADMINS_ENV.split(",") if x.strip().isdigit()}
-
-# ----- Logging -----
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
-logger = logging.getLogger("jawab")
-
-# ----- Rate limit -----
-rate_bucket = defaultdict(lambda: deque(maxlen=10))  # chat_id -> last timestamps
-
-# ----- Text packs -----
+# ---------- متن‌ها ----------
 TEXT = {
     "FA": {
-        "welcome": "سلام! من Jawab هستم 👋\nگزینه‌ها: 1) منو 🗂  2) پشتیبانی 🛟  3) زبان 🌐",
-        "menu": "منو 🗂\n- قیمت‌ها\n- دربارهٔ ما\n- پشتیبانی 🛟",
-        "support": "پشتیبانی 🛟\nبرای گفتگو پیام بده: @welluroo_support (نمونه)\nیا ایمیل: support@welluroo.com",
-        "about": "ما Jawab هستیم؛ دستیار پیام‌رسان برای کسب‌وکار شما.",
-        "lang_choose": "زبان را انتخاب کنید:",
-        "lang_set": "زبان شما روی فارسی تنظیم شد.",
-        "default": "سوال شما را متوجه نشدم؛ از «منو 🗂» کمک بگیرید یا «پشتیبانی 🛟».",
-        "rate_limit": "لطفاً کمی صبر کنید و آهسته‌تر پیام بدهید 🙏",
-        "stats_title": "آمار ربات 📊",
-        "broadcast_ok": "پیام برای {n} کاربر ارسال شد.",
-        "broadcast_usage": "روش استفاده: /broadcast متن_پیام"
+        "welcome": f"سلام! من {BRAND_NAME} هستم 👋\nگزینه‌ها: 1) منو 🗂  2) پشتیبانی 🛟  3) زبان 🌐",
+        "menu": "📋 منو:\n- قیمت‌ها\n- دربارهٔ ما\n- پشتیبانی",
+        "support": "پشتیبانی 🛟\nبرای گفتگو پیام بده: @welluroo_support" + (f"\nواتساپ: {SUPPORT_WHATSAPP}" if SUPPORT_WHATSAPP else ""),
+        "language": "لطفاً زبان را انتخاب کنید: FA / EN / AR",
+        "set_ok": "زبان تنظیم شد.",
+        "unknown": "متوجه نشدم. از دکمه‌ها استفاده کن یا بنویس: /help",
+        "catalog_empty": "کاتالوگ خالی است. اگر مدیر هستی، /sync را بزن.",
+        "sync_ok": "کاتالوگ به‌روزرسانی شد: {n} قلم.",
+        "sync_fail": "نشد! آدرس Sheet یا فرمت CSV را چک کن.",
+        "no_perm": "دسترسی نداری.",
+        "broadcast_ok": "ارسال شد به {n} کاربر.",
     },
     "EN": {
-        "welcome": "Hello! I’m Jawab 👋\nOptions: 1) Menu 🗂  2) Support 🛟  3) Language 🌐",
-        "menu": "Menu 🗂\n- Pricing\n- About us\n- Support 🛟",
-        "support": "Support 🛟\nDM: @welluroo_support (sample)\nEmail: support@welluroo.com",
-        "about": "We are Jawab—your messaging assistant for business.",
-        "lang_choose": "Choose your language:",
-        "lang_set": "Language set to English.",
-        "default": "I didn’t get that. Use “Menu 🗂” or “Support 🛟”.",
-        "rate_limit": "Please slow down a bit 🙏",
-        "stats_title": "Bot stats 📊",
-        "broadcast_ok": "Broadcast sent to {n} users.",
-        "broadcast_usage": "Usage: /broadcast your_message"
+        "welcome": f"Hello! I’m {BRAND_NAME} 👋\nOptions: 1) Menu 🗂  2) Support 🛟  3) Language 🌐",
+        "menu": "📋 Menu:\n- Prices\n- About us\n- Support",
+        "support": "Support 🛟\nDM: @welluroo_support" + (f"\nWhatsApp: {SUPPORT_WHATSAPP}" if SUPPORT_WHATSAPP else ""),
+        "language": "Choose a language: FA / EN / AR",
+        "set_ok": "Language set.",
+        "unknown": "Sorry, I didn’t get that. Use the buttons or type /help",
+        "catalog_empty": "Catalog is empty. If you are admin, run /sync.",
+        "sync_ok": "Catalog updated: {n} items.",
+        "sync_fail": "Failed! Check Sheet URL or CSV format.",
+        "no_perm": "No permission.",
+        "broadcast_ok": "Sent to {n} users.",
     },
     "AR": {
-        "welcome": "مرحباً! أنا جواب 👋\nالخيارات: 1) القائمة 🗂  2) الدعم 🛟  3) اللغة 🌐",
-        "menu": "القائمة 🗂\n- الأسعار\n- من نحن\n- الدعم 🛟",
-        "support": "الدعم 🛟\nراسلنا: @welluroo_support (مثال)\nEmail: support@welluroo.com",
-        "about": "نحن جواب—مساعد الرسائل لعملك.",
-        "lang_choose": "اختر اللغة:",
-        "lang_set": "تم ضبط اللغة على العربية.",
-        "default": "لم أفهم. استخدم «القائمة 🗂» أو «الدعم 🛟».",
-        "rate_limit": "الرجاء الإبطاء قليلاً 🙏",
-        "stats_title": "إحصاءات البوت 📊",
-        "broadcast_ok": "تم الإرسال إلى {n} مستخدمين.",
-        "broadcast_usage": "الاستخدام: /broadcast رسالتك"
-    }
+        "welcome": f"مرحباً! أنا {BRAND_NAME} 👋\nالخيارات: 1) القائمة 🗂  2) الدعم 🛟  3) اللغة 🌐",
+        "menu": "📋 القائمة:\n- الأسعار\n- من نحن\n- الدعم",
+        "support": "الدعم 🛟\nراسلنا: @welluroo_support" + (f"\nواتساب: {SUPPORT_WHATSAPP}" if SUPPORT_WHATSAPP else ""),
+        "language": "اختر اللغة: FA / EN / AR",
+        "set_ok": "تم ضبط اللغة.",
+        "unknown": "لم أفهم. استخدم الأزرار أو اكتب /help",
+        "catalog_empty": "الكاتالوج فارغ. إذا كنت مديراً، استخدم /sync.",
+        "sync_ok": "تم تحديث الكاتالوج: {n} عنصر.",
+        "sync_fail": "فشل! تحقق من رابط الـSheet أو تنسيق CSV.",
+        "no_perm": "ليست لديك صلاحية.",
+        "broadcast_ok": "تم الإرسال إلى {n} مستخدم.",
+    },
 }
 
-def reply_keyboard_main(lang):
-    labels = {
-        "FA": [["منو 🗂", "پشتیبانی 🛟", "زبان 🌐"]],
-        "EN": [["Menu 🗂", "Support 🛟", "Language 🌐"]],
-        "AR": [["القائمة 🗂", "الدعم 🛟", "اللغة 🌐"]],
-    }
-    return {"keyboard": labels.get(lang, labels["FA"]), "resize_keyboard": True}
+# ---------- کیبورد ----------
+def reply_keyboard(lang):
+    if lang == "AR":
+        return {"keyboard":[[{"text":"القائمة 🗂"},{"text":"الدعم 🛟"}],[{"text":"اللغة 🌐"}]],"resize_keyboard":True}
+    if lang == "EN":
+        return {"keyboard":[[{"text":"Menu 🗂"},{"text":"Support 🛟"}],[{"text":"Language 🌐"}]],"resize_keyboard":True}
+    return {"keyboard":[[{"text":"منو 🗂"},{"text":"پشتیبانی 🛟"}],[{"text":"زبان 🌐"}]],"resize_keyboard":True}
 
-def reply_keyboard_lang():
-    return {"keyboard": [["FA 🇮🇷", "EN 🇬🇧", "AR 🇸🇦"]], "resize_keyboard": True, "one_time_keyboard": True}
-
-def rate_limited(chat_id):
-    now = time.time()
-    q = rate_bucket[chat_id]
-    while q and now - q[0] > 5:
-        q.popleft()
-    q.append(now)
-    return len(q) > 5
-
-def send_message(chat_id, text, keyboard=None):
+# ---------- ارسال پیام ----------
+def send_text(chat_id, text, keyboard=None):
+    if not API: return
     payload = {"chat_id": chat_id, "text": text}
-    if keyboard:
-        payload["reply_markup"] = json.dumps(keyboard, ensure_ascii=False)
-    try:
-        r = requests.post(f"{TG_API}/sendMessage", data=payload, timeout=5)
-        logging.info("TG SEND RESP: %s - %s", r.status_code, r.text[:200])
-        log_message(chat_id, text, "out")
-    except Exception as e:
-        logging.exception("sendMessage failed: %s", e)
+    if keyboard: payload["reply_markup"] = keyboard
+    r = requests.post(API, json=payload, timeout=10)
+    return r
 
-def handle_text(chat_id, name, text):
-    upsert_user(chat_id, name)
-    log_message(chat_id, text or "", "in")
+# ---------- Silver: کاتالوگ از CSV ----------
+CATALOG = []   # list[dict]
 
-    lang = get_user_lang(chat_id)
-    t = (text or "").strip()
-    lower = t.lower()
+def _download_sheet_csv(url:str)->str:
+    r = requests.get(url, timeout=15)
+    r.raise_for_status()
+    return r.text
 
-    # انتخاب زبان
-    if t in ("FA 🇮🇷", "EN 🇬🇧", "AR 🇸🇦"):
-        new_lang = "FA" if "FA" in t else ("EN" if "EN" in t else "AR")
-        set_user_lang(chat_id, new_lang)
-        send_message(chat_id, TEXT[new_lang]["lang_set"], keyboard=reply_keyboard_main(new_lang))
-        return
+def sync_catalog_from_sheet():
+    """خواندن CSV منتشرشده: ستون‌های پیشنهادی
+    category,item_name,price,image_url,description,is_available
+    """
+    if not SHEET_URL:
+        raise RuntimeError("SHEET_URL missing")
+    csv_text = _download_sheet_csv(SHEET_URL)
+    f = io.StringIO(csv_text)
+    reader = csv.DictReader(f)
+    items = []
+    for row in reader:
+        items.append({
+            "category": (row.get("category") or "").strip(),
+            "name": (row.get("item_name") or "").strip(),
+            "price": (row.get("price") or "").strip(),
+            "image": (row.get("image_url") or "").strip(),
+            "desc": (row.get("description") or "").strip(),
+            "avail": (row.get("is_available") or "1").strip() in ["1","true","True","YES","yes","available"]
+        })
+    global CATALOG
+    CATALOG = items
+    return len(items)
 
-    # Admin: /stats
-    if lower.startswith("/stats"):
-        if chat_id in ADMINS:
-            s = get_stats()
-            msg = (f"{TEXT[lang]['stats_title']}\n"
-                   f"- Users: {s['users_total']}\n"
-                   f"- Messages: {s['messages_total']} (24h: {s['messages_24h']})\n"
-                   f"- Langs: {', '.join([f'{k}:{v}' for k,v in s['langs'].items()])}")
-            send_message(chat_id, msg)
-        return
+def show_menu_from_catalog(lang):
+    if not CATALOG:
+        return TEXT[lang]["catalog_empty"]
+    # گروه‌بندی بر اساس category و نمایش 5 قلم اول
+    cats = {}
+    for it in CATALOG:
+        cats.setdefault(it["category"] or "General", []).append(it)
+    parts = []
+    for cat, items in list(cats.items())[:5]:
+        parts.append(f"— {cat} —")
+        for it in items[:3]:
+            price = f" — {it['price']}" if it["price"] else ""
+            parts.append(f"• {it['name']}{price}")
+    return "\n".join(parts)
 
-    # Admin: /broadcast <msg>
-    if lower.startswith("/broadcast"):
-        if chat_id in ADMINS:
-            parts = t.split(" ", 1)
-            if len(parts) == 1 or not parts[1].strip():
-                send_message(chat_id, TEXT[lang]["broadcast_usage"])
-                return
-            body = parts[1].strip()
-            ids = list_user_ids(limit=200)
-            sent = 0
-            for uid in ids:
-                try:
-                    send_message(uid, body); sent += 1
-                    time.sleep(0.05)
-                except Exception:
-                    pass
-            send_message(chat_id, TEXT[lang]["broadcast_ok"].format(n=sent))
-        return
+# ---------- ریت‌لیمیت ساده ----------
+from collections import defaultdict, deque
+from time import time as now
+BUCKET = defaultdict(lambda: deque(maxlen=10))
+def rate_ok(uid:int, limit=5, window=5):
+    q = BUCKET[uid]; t = now(); q.append(t)
+    recent = [x for x in q if t - x <= window]
+    return len(recent) <= limit
 
-    # /start
-    if lower.startswith("/start"):
-        send_message(chat_id, TEXT[lang]["welcome"], keyboard=reply_keyboard_main(lang))
-        return
-
-    # Language
-    if t in ("زبان 🌐", "Language 🌐", "اللغة 🌐"):
-        send_message(chat_id, TEXT[lang]["lang_choose"], keyboard=reply_keyboard_lang())
-        return
-
-    # Greetings
-    if t in {"سلام","درود","سلام!"} or lower in {"hi","hello","hey"} or t in {"مرحبا","السلام عليكم"}:
-        send_message(chat_id, TEXT[lang]["welcome"], keyboard=reply_keyboard_main(lang))
-        return
-
-    # Menu/Support/About
-    if t in ("منو 🗂","منو","Menu 🗂","Menu","القائمة 🗂","القائمة"):
-        send_message(chat_id, TEXT[lang]["menu"], keyboard=reply_keyboard_main(lang)); return
-    if t in ("پشتیبانی 🛟","پشتیبانی","Support 🛟","Support","الدعم 🛟","الدعم"):
-        send_message(chat_id, TEXT[lang]["support"], keyboard=reply_keyboard_main(lang)); return
-    if t in ("درباره ما","About us","من نحن"):
-        send_message(chat_id, TEXT[lang]["about"], keyboard=reply_keyboard_main(lang)); return
-
-    # Pricing/Hours
-    if "قیمت" in t or "pricing" in lower or "ساعت کاری" in t or "hours" in lower:
-        msg = "برای دریافت قیمت و ساعات کاری با «پشتیبانی 🛟» در تماس باشید."
-        if lang == "EN": msg = "For pricing and business hours, contact “Support 🛟”."
-        if lang == "AR": msg = "للاسعار وساعات العمل تواصل مع «الدعم 🛟»."
-        send_message(chat_id, msg, keyboard=reply_keyboard_main(lang)); return
-
-    # Default
-    send_message(chat_id, TEXT[lang]["default"], keyboard=reply_keyboard_main(lang))
-
+# ---------- وب ----------
 @app.route("/health", methods=["GET","HEAD"])
-def health():
-    return jsonify(status="ok")
+def health(): return jsonify(status="ok")
 
-@app.route("/telegram", methods=["POST","GET"])
+@app.route("/", methods=["GET"])
+def root(): return "Arabia bot is running."
+
+@app.route("/telegram", methods=["GET","POST"])
 def telegram():
-    if request.method == "GET":
-        return "OK", 200
-    try:
-        update = request.get_json(silent=True) or {}
-        logging.info("INCOMING: %s", str(update)[:500])
-        message = update.get("message") or update.get("edited_message") or {}
-        chat = message.get("chat") or {}
-        chat_id = chat.get("id")
-        name = ((chat.get("first_name") or "") + " " + (chat.get("last_name") or "")).strip()
-        text = message.get("text") or ""
+    if request.method == "GET": return "OK", 200
+    if not BOT_TOKEN: return jsonify({"error":"TELEGRAM_BOT_TOKEN missing"}), 500
 
-        if not chat_id:
-            return jsonify(ok=True)
+    update = request.get_json(silent=True) or {}
+    message = update.get("message") or update.get("edited_message") or {}
+    chat = message.get("chat") or {}
+    chat_id = chat.get("id")
+    text = (message.get("text") or "").strip()
 
-        if rate_limited(chat_id):
-            lang = get_user_lang(chat_id)
-            send_message(chat_id, TEXT[lang]["rate_limit"])
-            return jsonify(ok=True)
+    if not chat_id or not text:
+        return jsonify({"ok": True})  # ignore non-text
 
-        handle_text(chat_id, name, text)
-    except Exception as e:
-        logging.exception("Webhook error: %s", e)
-    return jsonify(ok=True)
+    # ریت‌لیمیت
+    if not rate_ok(chat_id):
+        return jsonify({"ok": True})
 
-@app.get("/")
-def root():
-    return "Jawab bot is running."
+    # ثبت کاربر + زبان
+    name = (chat.get("first_name") or "") + " " + (chat.get("last_name") or "")
+    upsert_user(chat_id, name.strip())
+    lang = get_user_lang(chat_id)
+
+    # deep-link منبع جذب
+    if text.startswith("/start"):
+        parts = text.split(" ", 1)
+        if len(parts) == 2 and parts[1].strip():
+            try: set_user_source(chat_id, parts[1].strip()[:64])
+            except: pass
+        send_text(chat_id, TEXT[lang]["welcome"], keyboard=reply_keyboard(lang))
+        log_message(chat_id, text, "in"); log_message(chat_id, "welcome", "out")
+        return jsonify({"ok": True})
+
+    low = text.lower()
+
+    # ---------- دستورات ادمین ----------
+    is_admin = str(chat_id) in ADMINS
+    if low.startswith("/stats") and is_admin:
+        st = get_stats()
+        msg = f"Users: {st['users_total']}\nMessages: {st['messages_total']} (24h: {st['messages_24h']})\nLangs: {st['langs']}"
+        send_text(chat_id, msg)
+        return jsonify({"ok": True})
+
+    if low.startswith("/broadcast") and is_admin:
+        msg = text[len("/broadcast"):].strip()
+        if not msg:
+            send_text(chat_id, "Usage: /broadcast your message")
+            return jsonify({"ok": True})
+        ids = list_user_ids(10000)
+        sent = 0
+        for uid in ids:
+            try:
+                send_text(uid, msg)
+                sent += 1
+                time.sleep(0.03)  # ملایم
+            except: pass
+        send_text(chat_id, TEXT[lang]["broadcast_ok"].format(n=sent))
+        return jsonify({"ok": True})
+
+    if low.startswith("/setlang"):
+        parts = low.split()
+        if len(parts) >= 2 and parts[1].upper() in ["FA","EN","AR"]:
+            set_user_lang(chat_id, parts[1].upper())
+            lang = parts[1].upper()
+            send_text(chat_id, TEXT[lang]["set_ok"], keyboard=reply_keyboard(lang))
+            return jsonify({"ok": True})
+        else:
+            send_text(chat_id, TEXT[lang]["language"])
+            return jsonify({"ok": True})
+
+    # ---------- Silver: /sync ----------
+    if low.startswith("/sync"):
+        if not is_admin:
+            send_text(chat_id, TEXT[lang]["no_perm"]); return jsonify({"ok": True})
+        if PLAN in ["silver","gold","diamond"]:
+            try:
+                n = sync_catalog_from_sheet()
+                send_text(chat_id, TEXT[lang]["sync_ok"].format(n=n))
+            except Exception as e:
+                send_text(chat_id, TEXT[lang]["sync_fail"] + f"\n{e}")
+        else:
+            send_text(chat_id, "Not available in your plan.")
+        return jsonify({"ok": True})
+
+    # ---------- Intentها ----------
+    if text in ["منو 🗂","القائمة 🗂","Menu 🗂","منو","القائمة","Menu"]:
+        if PLAN in ["silver","gold","diamond"] and CATALOG:
+            send_text(chat_id, show_menu_from_catalog(lang), keyboard=reply_keyboard(lang))
+        else:
+            send_text(chat_id, TEXT[lang]["menu"], keyboard=reply_keyboard(lang))
+        log_message(chat_id, text, "in"); log_message(chat_id, "menu", "out")
+        return jsonify({"ok": True})
+
+    if text in ["پشتیبانی 🛟","الدعم 🛟","Support 🛟","پشتیبانی","الدعم","Support"]:
+        send_text(chat_id, TEXT[lang]["support"], keyboard=reply_keyboard(lang))
+        return jsonify({"ok": True})
+
+    if text in ["زبان 🌐","اللغة 🌐","Language 🌐","زبان","اللغة","Language"]:
+        send_text(chat_id, TEXT[lang]["language"])
+        return jsonify({"ok": True})
+
+    # ذخیره پیام و پاسخ پیش‌فرض
+    log_message(chat_id, text, "in")
+    send_text(chat_id, TEXT[lang]["unknown"], keyboard=reply_keyboard(lang))
+    log_message(chat_id, "unknown", "out")
+    return jsonify({"ok": True})
+
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "5000"))
-    app.run(host="0.0.0.0", port=port)
-
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
