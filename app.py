@@ -1,3 +1,8 @@
+if text.startswith("/start"):
+    parts = text.split(" ", 1)
+    if len(parts) == 2 and parts[1].strip():
+        from storage.db import set_user_source
+        set_user_source(chat_id, parts[1].strip())
 import os, time, logging, json
 from collections import defaultdict, deque
 import requests
