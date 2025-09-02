@@ -13,7 +13,6 @@ DEFAULT_LANG = (os.environ.get("DEFAULT_LANG") or "FA").upper()
 
 # ---------- اتصال ----------
 def _conn():
-    # اتصال ساده به SQLite
     return sqlite3.connect(DB_PATH)
 
 
@@ -21,43 +20,52 @@ def _conn():
 def init_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     with _conn() as c:
-        # جدول کاربران (برای نصب‌های تازه، ستون phone را هم از ابتدا داریم)
+        # کاربران
         c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             chat_id     INTEGER PRIMARY KEY,
             name        TEXT,
             lang        TEXT DEFAULT 'FA',
-            source      TEXT,                               -- منبع جذب/دیپ‌لینک (اختیاری)
-            phone       TEXT,                               -- شماره تماس کاربر (اختیاری)
+            source      TEXT,
+            phone       TEXT,
             created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
 
-        # جدول پیام‌ها
+        # پیام‌ها
         c.execute("""
         CREATE TABLE IF NOT EXISTS messages (
-            id        INTEGER PRIMARY KEY AUTOINCREMENT,
-            chat_id   INTEGER,
-            direction TEXT,                                 -- in/out
-            text      TEXT,
-            ts        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER,
+            direction TEXT,
+            text    TEXT,
+            ts      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
 
-        # اگر دیتابیس قبلاً بوده، ستون‌های جدید را اضافه کن
-        cols = [r[1] for r in c.execute("PRAGMA table_info(users)").fetchall()]
-
-        if "source" not in cols:
-            c.execute("ALTER TABLE users ADD COLUMN source TEXT")
-
-        if "phone" not in cols:
-            c.execute("ALTER TABLE users ADD COLUMN phone TEXT")
+        # سفارش‌ها
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id   INTEGER,
+            product   TEXT,
+            price     TEXT,
+            status    TEXT DEFAULT 'pending',   -- pending/confirmed/canceled
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
 
         # ایندکس‌ها
         c.execute("CREATE INDEX IF NOT EXISTS idx_messages_chat_ts ON messages(chat_id, ts)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_users_lang ON users(lang)")
-        # ایندکس روی phone (بعد از اطمینان از وجود ستون)
-        c.execute("CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_orders_chat_status ON orders(chat_id, status)")
+
+        # مایگریشن ایمن: اگر ستون‌های اختیاری نبودند اضافه کن
+        cols = [r[1] for r in c.execute("PRAGMA table_info(users)").fetchall()]
+        if "source" not in cols:
+            c.execute("ALTER TABLE users ADD COLUMN source TEXT")
+        if "phone" not in cols:
+            c.execute("ALTER TABLE users ADD COLUMN phone TEXT")
 
 
 # ---------- عملیات کاربر ----------
@@ -72,7 +80,6 @@ def upsert_user(chat_id: int, name: str | None):
 def get_user_lang(chat_id: int) -> str:
     with _conn() as c:
         row = c.execute("SELECT lang FROM users WHERE chat_id=?", (chat_id,)).fetchone()
-    # اگر هنوز زبان برای کاربر ذخیره نشده باشد، از ENV برمی‌گرداند
     return (row[0] if row and row[0] else DEFAULT_LANG)
 
 
@@ -86,29 +93,23 @@ def set_user_lang(chat_id: int, lang: str):
 
 
 def set_user_source(chat_id: int, source: str):
-    """برای ذخیرهٔ منبع جذب کاربر (مثلاً ?start=as_bio)"""
     if not source:
         return
     with _conn() as c:
         c.execute("""
         INSERT INTO users (chat_id, source) VALUES (?, ?)
         ON CONFLICT(chat_id) DO UPDATE SET source=excluded.source
-        """, (chat_id, (source or "")[:64]))
+        """, (chat_id, source[:64]))
 
 
 def set_user_phone(chat_id: int, phone: str):
-    """ذخیره/به‌روزرسانی شمارهٔ تماس کاربر"""
     if not phone:
         return
     with _conn() as c:
-        c.execute("""
-        INSERT INTO users (chat_id, phone) VALUES (?, ?)
-        ON CONFLICT(chat_id) DO UPDATE SET phone=excluded.phone
-        """, (chat_id, phone.strip()))
+        c.execute("UPDATE users SET phone=? WHERE chat_id=?", (phone, chat_id))
 
 
 def get_user_phone(chat_id: int) -> str | None:
-    """(اختیاری) دریافت شمارهٔ کاربر"""
     with _conn() as c:
         row = c.execute("SELECT phone FROM users WHERE chat_id=?", (chat_id,)).fetchone()
     return row[0] if row and row[0] else None
@@ -147,6 +148,40 @@ def list_user_ids(limit: int = 200) -> list[int]:
             (limit,)
         ).fetchall()
     return [r[0] for r in rows]
+
+
+# ---------- سفارش‌ها ----------
+def clear_pending_orders(chat_id: int):
+    with _conn() as c:
+        c.execute("UPDATE orders SET status='canceled' WHERE chat_id=? AND status='pending'", (chat_id,))
+
+
+def create_pending_order(chat_id: int, product: str, price: str) -> int:
+    clear_pending_orders(chat_id)
+    with _conn() as c:
+        c.execute("INSERT INTO orders(chat_id, product, price, status) VALUES (?,?,?, 'pending')",
+                  (chat_id, product, price))
+        return c.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+
+def get_pending_order(chat_id: int):
+    with _conn() as c:
+        return c.execute("SELECT id, product, price FROM orders WHERE chat_id=? AND status='pending' ORDER BY id DESC LIMIT 1",
+                         (chat_id,)).fetchone()
+
+
+def confirm_pending_order(chat_id: int):
+    with _conn() as c:
+        row = c.execute("SELECT id, product, price FROM orders WHERE chat_id=? AND status='pending' ORDER BY id DESC LIMIT 1",
+                        (chat_id,)).fetchone()
+        if not row: return None
+        c.execute("UPDATE orders SET status='confirmed' WHERE id=?", (row[0],))
+        return {"id": row[0], "product": row[1], "price": row[2]}
+
+
+def cancel_pending_order(chat_id: int):
+    with _conn() as c:
+        c.execute("UPDATE orders SET status='canceled' WHERE chat_id=? AND status='pending'", (chat_id,))
 
 
 # هنگام import شدن ماژول، دیتابیس را آماده کن
