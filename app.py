@@ -353,11 +353,22 @@ def telegram():
         oid = create_order(chat_id, sel["name"], 1, sel.get("price",""))
         send_text(chat_id, TEXT[lang]["order_saved"].format(oid=oid), keyboard=reply_keyboard(lang))
         # اعلان به ادمین
-        for admin in ADMINS:
-            try:
-                requests.post(API, json={"chat_id": int(admin),
-                                         "text": f"🆕 Order #{oid}\nUser: {chat_id}\nItem: {sel['name']}\nPrice: {sel.get('price','')}"}, timeout=10)
-            except: pass
+# --- Admin notification with phone & name ---
+phone = get_user_phone(chat_id) or "-"
+display_name = (name or "").strip() or str(chat_id)
+admin_text = (
+    f"🆕 Order #{oid}\n"
+    f"User: {display_name}\n"
+    f"ID: {chat_id}\n"
+    f"Phone: {phone}\n"
+    f"Item: {sel['name']}\n"
+    f"Price: {sel.get('price','')}"
+)
+for admin in ADMINS:
+    try:
+        requests.post(API, json={"chat_id": int(admin), "text": admin_text}, timeout=10)
+    except:
+        pass
         SELECTED.pop(chat_id, None)
         return jsonify({"ok": True})
 
