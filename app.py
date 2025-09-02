@@ -15,7 +15,7 @@ SHEET_URL = os.environ.get("SHEET_URL", "").strip()   # برای Silver
 # ---------- DB ----------
 from storage.db import (
     init_db, upsert_user, get_user_lang, set_user_lang,
-    log_message, get_stats, list_user_ids, set_user_source
+    log_message, get_stats, list_user_ids, set_user_source, set_user_phone
 )
 init_db()
 
@@ -25,7 +25,7 @@ app = Flask(__name__)
 TEXT = {
     "FA": {
         "welcome": f"سلام! من {BRAND_NAME} هستم 👋\nگزینه‌ها: 1) منو 🗂  2) پشتیبانی 🛟  3) زبان 🌐",
-        "menu": "📋 منو:\n- قیمت‌ها\n- دربارهٔ ما\n- پشتیبانی",
+        "menu": "یکی از گزینه‌های زیر را انتخاب کن:",
         "support": "پشتیبانی 🛟\nبرای گفتگو پیام بده: @welluroo_support" + (f"\nواتساپ: {SUPPORT_WHATSAPP}" if SUPPORT_WHATSAPP else ""),
         "language": "لطفاً زبان را انتخاب کنید: FA / EN / AR",
         "set_ok": "زبان تنظیم شد.",
@@ -35,10 +35,17 @@ TEXT = {
         "sync_fail": "نشد! آدرس Sheet یا فرمت CSV را چک کن.",
         "no_perm": "دسترسی نداری.",
         "broadcast_ok": "ارسال شد به {n} کاربر.",
+        "not_config": "هنوز تنظیم نشده.",
+        "phone_ok": "شماره‌ات ثبت شد. همکاران ما با شما تماس می‌گیرند.",
+        "choose": "یک گزینه را انتخاب کن:",
+        "back": "بازگشت ↩️",
+        "btn_prices": "قیمت‌ها 💵",
+        "btn_about": "دربارهٔ ما ℹ️",
+        "btn_send_phone": "ارسال شماره 📞",
     },
     "EN": {
         "welcome": f"Hello! I’m {BRAND_NAME} 👋\nOptions: 1) Menu 🗂  2) Support 🛟  3) Language 🌐",
-        "menu": "📋 Menu:\n- Prices\n- About us\n- Support",
+        "menu": "Please choose:",
         "support": "Support 🛟\nDM: @welluroo_support" + (f"\nWhatsApp: {SUPPORT_WHATSAPP}" if SUPPORT_WHATSAPP else ""),
         "language": "Choose a language: FA / EN / AR",
         "set_ok": "Language set.",
@@ -48,10 +55,17 @@ TEXT = {
         "sync_fail": "Failed! Check Sheet URL or CSV format.",
         "no_perm": "No permission.",
         "broadcast_ok": "Sent to {n} users.",
+        "not_config": "Not configured yet.",
+        "phone_ok": "Your phone number is saved. We will contact you shortly.",
+        "choose": "Choose an option:",
+        "back": "Back ↩️",
+        "btn_prices": "Prices 💵",
+        "btn_about": "About us ℹ️",
+        "btn_send_phone": "Share phone 📞",
     },
     "AR": {
         "welcome": f"مرحباً! أنا {BRAND_NAME} 👋\nالخيارات: 1) القائمة 🗂  2) الدعم 🛟  3) اللغة 🌐",
-        "menu": "📋 القائمة:\n- الأسعار\n- من نحن\n- الدعم",
+        "menu": "اختر خياراً:",
         "support": "الدعم 🛟\nراسلنا: @welluroo_support" + (f"\nواتساب: {SUPPORT_WHATSAPP}" if SUPPORT_WHATSAPP else ""),
         "language": "اختر اللغة: FA / EN / AR",
         "set_ok": "تم ضبط اللغة.",
@@ -61,6 +75,13 @@ TEXT = {
         "sync_fail": "فشل! تحقق من رابط الـSheet أو تنسيق CSV.",
         "no_perm": "ليست لديك صلاحية.",
         "broadcast_ok": "تم الإرسال إلى {n} مستخدم.",
+        "not_config": "غير مُعدّ بعد.",
+        "phone_ok": "تم حفظ رقم هاتفك وسنتواصل معك قريباً.",
+        "choose": "اختر خياراً:",
+        "back": "العودة ↩️",
+        "btn_prices": "الأسعار 💵",
+        "btn_about": "من نحن ℹ️",
+        "btn_send_phone": "إرسال الرقم 📞",
     },
 }
 
@@ -72,8 +93,27 @@ def reply_keyboard(lang):
         return {"keyboard":[[{"text":"Menu 🗂"},{"text":"Support 🛟"}],[{"text":"Language 🌐"}]],"resize_keyboard":True}
     return {"keyboard":[[{"text":"منو 🗂"},{"text":"پشتیبانی 🛟"}],[{"text":"زبان 🌐"}]],"resize_keyboard":True}
 
+def menu_keyboard(lang):
+    if lang == "AR":
+        return {"keyboard":[
+            [{"text":TEXT["AR"]["btn_prices"]},{"text":TEXT["AR"]["btn_about"]}],
+            [{"text":TEXT["AR"]["btn_send_phone"], "request_contact": True}],
+            [{"text":TEXT["AR"]["back"]}]
+        ], "resize_keyboard": True}
+    if lang == "EN":
+        return {"keyboard":[
+            [{"text":TEXT["EN"]["btn_prices"]},{"text":TEXT["EN"]["btn_about"]}],
+            [{"text":TEXT["EN"]["btn_send_phone"], "request_contact": True}],
+            [{"text":TEXT["EN"]["back"]}]
+        ], "resize_keyboard": True}
+    # FA
+    return {"keyboard":[
+        [{"text":TEXT["FA"]["btn_prices"]},{"text":TEXT["FA"]["btn_about"]}],
+        [{"text":TEXT["FA"]["btn_send_phone"], "request_contact": True}],
+        [{"text":TEXT["FA"]["back"]}]
+    ], "resize_keyboard": True}
+
 def lang_keyboard():
-    # کیبورد ساده برای انتخاب زبان
     return {"keyboard": [[{"text":"FA"},{"text":"EN"},{"text":"AR"}]], "resize_keyboard": True}
 
 # ---------- ارسال پیام ----------
@@ -93,9 +133,6 @@ def _download_sheet_csv(url:str)->str:
     return r.text
 
 def sync_catalog_from_sheet():
-    """خواندن CSV منتشرشده: ستون‌های پیشنهادی
-    category,item_name,price,image_url,description,is_available
-    """
     if not SHEET_URL:
         raise RuntimeError("SHEET_URL missing")
     csv_text = _download_sheet_csv(SHEET_URL)
@@ -118,7 +155,6 @@ def sync_catalog_from_sheet():
 def show_menu_from_catalog(lang):
     if not CATALOG:
         return TEXT[lang]["catalog_empty"]
-    # گروه‌بندی بر اساس category و نمایش 5 قلم اول
     cats = {}
     for it in CATALOG:
         cats.setdefault(it["category"] or "General", []).append(it)
@@ -129,6 +165,11 @@ def show_menu_from_catalog(lang):
             price = f" — {it['price']}" if it["price"] else ""
             parts.append(f"• {it['name']}{price}")
     return "\n".join(parts)
+
+# ---------- Helper برای خواندن متن‌های پلن برنز از ENV ----------
+def get_section(section: str, lang: str) -> str:
+    # مثال: PRICES_FA, ABOUT_AR
+    return (os.environ.get(f"{section}_{lang}", "") or "").strip()
 
 # ---------- ریت‌لیمیت ساده ----------
 from collections import defaultdict, deque
@@ -156,8 +197,16 @@ def telegram():
     chat = message.get("chat") or {}
     chat_id = chat.get("id")
     text = (message.get("text") or "").strip()
+    contact = message.get("contact") or {}
 
-    if not chat_id or not text:
+    # ذخیره شماره تماس
+    if contact and contact.get("phone_number"):
+        set_user_phone(chat_id, contact.get("phone_number"))
+        lang = get_user_lang(chat_id)
+        send_text(chat_id, TEXT[lang]["phone_ok"], keyboard=reply_keyboard(lang))
+        return jsonify({"ok": True})
+
+    if not chat_id or not (text or contact):
         return jsonify({"ok": True})  # ignore non-text
 
     # ریت‌لیمیت
@@ -252,23 +301,40 @@ def telegram():
         return jsonify({"ok": True})
 
     # ---------- Intentها ----------
+    # منوی اصلی: نمایش زیرمنو (برنز)
     if text in ["منو 🗂","القائمة 🗂","Menu 🗂","منو","القائمة","Menu"]:
-        if PLAN in ["silver","gold","diamond"] and CATALOG:
-            send_text(chat_id, show_menu_from_catalog(lang), keyboard=reply_keyboard(lang))
-        else:
-            send_text(chat_id, TEXT[lang]["menu"], keyboard=reply_keyboard(lang))
+        send_text(chat_id, TEXT[lang]["choose"], keyboard=menu_keyboard(lang))
         log_message(chat_id, text, "in"); log_message(chat_id, "menu", "out")
         return jsonify({"ok": True})
 
+    # برگشت از زیرمنو
+    if text in [TEXT[lang]["back"]]:
+        send_text(chat_id, TEXT[lang]["welcome"], keyboard=reply_keyboard(lang))
+        return jsonify({"ok": True})
+
+    # قیمت‌ها
+    if text in [TEXT["FA"]["btn_prices"], TEXT["EN"]["btn_prices"], TEXT["AR"]["btn_prices"], "قیمت‌ها", "Prices", "الأسعار"]:
+        msg = get_section("PRICES", lang) or TEXT[lang]["not_config"]
+        send_text(chat_id, msg, keyboard=menu_keyboard(lang))
+        return jsonify({"ok": True})
+
+    # درباره ما
+    if text in [TEXT["FA"]["btn_about"], TEXT["EN"]["btn_about"], TEXT["AR"]["btn_about"], "درباره ما", "About", "من نحن"]:
+        msg = get_section("ABOUT", lang) or TEXT[lang]["not_config"]
+        send_text(chat_id, msg, keyboard=menu_keyboard(lang))
+        return jsonify({"ok": True})
+
+    # پشتیبانی
     if text in ["پشتیبانی 🛟","الدعم 🛟","Support 🛟","پشتیبانی","الدعم","Support"]:
         send_text(chat_id, TEXT[lang]["support"], keyboard=reply_keyboard(lang))
         return jsonify({"ok": True})
 
+    # زبان
     if text in ["زبان 🌐","اللغة 🌐","Language 🌐","زبان","اللغة","Language"]:
         send_text(chat_id, TEXT[lang]["language"], keyboard=lang_keyboard())
         return jsonify({"ok": True})
 
-    # ذخیره پیام و پاسخ پیش‌فرض
+    # پاسخ پیش‌فرض
     log_message(chat_id, text, "in")
     send_text(chat_id, TEXT[lang]["unknown"], keyboard=reply_keyboard(lang))
     log_message(chat_id, "unknown", "out")
