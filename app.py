@@ -163,7 +163,7 @@ def sync_catalog_from_sheet():
     items = []
     for row in reader:
         avail = (row.get("is_available") or "1").strip().lower() in ["1","true","yes","available"]
-        if not avail: 
+        if not avail:
             continue
         items.append({
             "category": (row.get("category") or "").strip(),
@@ -179,8 +179,7 @@ def parse_env_products(lang:str)->list[dict]:
     lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
     items = []
     for ln in lines:
-        # قالب: category | name | price   یا  name | price
-        parts = [p.strip() for p in ln.split("|")]
+        parts = [p.strip() for p in ln.split("|")]  # category|name|price یا name|price
         if len(parts) == 3:
             _, name, price = parts
         elif len(parts) == 2:
@@ -196,7 +195,6 @@ def load_products(lang:str)->list[dict]:
     return parse_env_products(lang)
 
 def build_product_keyboard(items:list, lang:str):
-    # حداکثر 10 قلم اول + بازگشت
     rows = []
     for i, it in enumerate(items[:10], start=1):
         label = f"{i}) {it['name']}"
@@ -352,25 +350,25 @@ def telegram():
         # ایجاد سفارش
         oid = create_order(chat_id, sel["name"], 1, sel.get("price",""))
         send_text(chat_id, TEXT[lang]["order_saved"].format(oid=oid), keyboard=reply_keyboard(lang))
-        # اعلان به ادمین
-# --- Admin notification (safe ASCII) ---
-phone = get_user_phone(chat_id) or "-"
-display_name = (name or "").strip() or str(chat_id)
-admin_text = "NEW Order #{}\nUser: {}\nID: {}\nPhone: {}\nItem: {}\nPrice: {}".format(
-    oid, display_name, chat_id, phone, sel["name"], sel.get("price", "")
-)
-for admin in ADMINS:
-    try:
-        requests.post(
-            API,
-            json={"chat_id": int(admin), "text": admin_text},
-            timeout=10
-        )
-    except Exception:
-        pass
 
-SELECTED.pop(chat_id, None)
-return jsonify({"ok": True})
+        # --- Admin notification (safe ASCII) ---
+        phone_val = get_user_phone(chat_id) or "-"
+        display_name = (name or "").strip() or str(chat_id)
+        admin_text = "NEW Order #{}\nUser: {}\nID: {}\nPhone: {}\nItem: {}\nPrice: {}".format(
+            oid, display_name, chat_id, phone_val, sel["name"], sel.get("price", "")
+        )
+        for admin in ADMINS:
+            try:
+                requests.post(
+                    API,
+                    json={"chat_id": int(admin), "text": admin_text},
+                    timeout=10
+                )
+            except Exception:
+                pass
+
+        SELECTED.pop(chat_id, None)
+        return jsonify({"ok": True})
 
     # پشتیبانی
     if text in ["پشتیبانی 🛟","الدعم 🛟","Support 🛟","پشتیبانی","الدعم","Support"]:
