@@ -21,36 +21,43 @@ def _conn():
 def init_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     with _conn() as c:
-        # کاربران
+        # جدول کاربران (برای نصب‌های تازه، ستون phone را هم از ابتدا داریم)
         c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             chat_id     INTEGER PRIMARY KEY,
             name        TEXT,
             lang        TEXT DEFAULT 'FA',
             source      TEXT,                               -- منبع جذب/دیپ‌لینک (اختیاری)
+            phone       TEXT,                               -- شماره تماس کاربر (اختیاری)
             created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
 
-        # پیام‌ها
+        # جدول پیام‌ها
         c.execute("""
         CREATE TABLE IF NOT EXISTS messages (
-            id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            chat_id INTEGER,
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id   INTEGER,
             direction TEXT,                                 -- in/out
-            text    TEXT,
-            ts      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            text      TEXT,
+            ts        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
+
+        # اگر دیتابیس قبلاً بوده، ستون‌های جدید را اضافه کن
+        cols = [r[1] for r in c.execute("PRAGMA table_info(users)").fetchall()]
+
+        if "source" not in cols:
+            c.execute("ALTER TABLE users ADD COLUMN source TEXT")
+
+        if "phone" not in cols:
+            c.execute("ALTER TABLE users ADD COLUMN phone TEXT")
 
         # ایندکس‌ها
         c.execute("CREATE INDEX IF NOT EXISTS idx_messages_chat_ts ON messages(chat_id, ts)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_users_lang ON users(lang)")
-
-        # اگر قبلاً users ساخته شده ولی ستون source نداشت، اضافه کن
-        cols = [r[1] for r in c.execute("PRAGMA table_info(users)").fetchall()]
-        if "source" not in cols:
-            c.execute("ALTER TABLE users ADD COLUMN source TEXT")
+        # ایندکس روی phone (بعد از اطمینان از وجود ستون)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone)")
 
 
 # ---------- عملیات کاربر ----------
@@ -86,7 +93,25 @@ def set_user_source(chat_id: int, source: str):
         c.execute("""
         INSERT INTO users (chat_id, source) VALUES (?, ?)
         ON CONFLICT(chat_id) DO UPDATE SET source=excluded.source
-        """, (chat_id, source[:64]))
+        """, (chat_id, (source or "")[:64]))
+
+
+def set_user_phone(chat_id: int, phone: str):
+    """ذخیره/به‌روزرسانی شمارهٔ تماس کاربر"""
+    if not phone:
+        return
+    with _conn() as c:
+        c.execute("""
+        INSERT INTO users (chat_id, phone) VALUES (?, ?)
+        ON CONFLICT(chat_id) DO UPDATE SET phone=excluded.phone
+        """, (chat_id, phone.strip()))
+
+
+def get_user_phone(chat_id: int) -> str | None:
+    """(اختیاری) دریافت شمارهٔ کاربر"""
+    with _conn() as c:
+        row = c.execute("SELECT phone FROM users WHERE chat_id=?", (chat_id,)).fetchone()
+    return row[0] if row and row[0] else None
 
 
 # ---------- لاگ پیام ----------
@@ -126,4 +151,3 @@ def list_user_ids(limit: int = 200) -> list[int]:
 
 # هنگام import شدن ماژول، دیتابیس را آماده کن
 init_db()
-
