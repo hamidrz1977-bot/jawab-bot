@@ -1,5 +1,8 @@
+# app.py — Arabia Social (Flask + Telegram Webhook)
 import os, requests, time, csv, io, re
 from flask import Flask, request, jsonify
+from collections import defaultdict, deque
+from time import time as now
 
 # ---------- ENV ----------
 BOT_TOKEN = os.environ.get("TG_BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -49,6 +52,11 @@ TEXT = {
         "order_saved": "درخواستت ثبت شد. کد سفارش: #{oid}\nهمکاران ما با شما هماهنگ می‌کنند.",
         "need_phone": "برای ثبت سفارش، لطفاً با دکمه «📞 ارسال شماره» شماره‌ات را ارسال کن.",
         "selected": "انتخاب شد: {name} — {price}",
+        # جدید:
+        "btn_content": "🧩 پکیج‌های محتوا",
+        "btn_app": "🤖 پلان‌های اپ Jawab",
+        "btn_request": "✅ ثبت درخواست",
+        "lead_saved": "درخواست شما ثبت شد؛ به‌زودی با شما تماس می‌گیریم.",
     },
     "EN": {
         "welcome": f"Hello! I’m {BRAND_NAME} 👋\nOptions: 1) Menu 🗂  2) Support 🛟  3) Language 🌐",
@@ -75,6 +83,11 @@ TEXT = {
         "order_saved": "Your request is saved. Order ID: #{oid}\nWe will contact you shortly.",
         "need_phone": "To place the order, please tap “📞 Share phone”.",
         "selected": "Selected: {name} — {price}",
+        # new:
+        "btn_content": "🧩 Content Packages",
+        "btn_app": "🤖 Jawab App Plans",
+        "btn_request": "✅ Request Quote",
+        "lead_saved": "Your request is recorded. We'll contact you shortly.",
     },
     "AR": {
         "welcome": f"مرحباً! أنا {BRAND_NAME} 👋\nالخيارات: 1) القائمة 🗂  2) الدعم 🛟  3) اللغة 🌐",
@@ -101,6 +114,11 @@ TEXT = {
         "order_saved": "تم حفظ طلبك. رقم الطلب: #{oid}\nسنتواصل معك قريباً.",
         "need_phone": "لإتمام الطلب، الرجاء الضغط على «📞 إرسال الرقم».",
         "selected": "تم اختيار: {name} — {price}",
+        # جديد:
+        "btn_content": "🧩 باقات المحتوى",
+        "btn_app": "🤖 خطط تطبيق Jawab",
+        "btn_request": "✅ تسجيل طلب",
+        "lead_saved": "تم تسجيل طلبك، وسنتواصل معك قريباً.",
     },
 }
 
@@ -116,17 +134,20 @@ def menu_keyboard(lang):
     if lang == "AR":
         return {"keyboard":[
             [{"text":TEXT["AR"]["btn_products"]},{"text":TEXT["AR"]["btn_prices"]},{"text":TEXT["AR"]["btn_about"]}],
+            [{"text":TEXT["AR"]["btn_content"]},{"text":TEXT["AR"]["btn_app"]}],
             [{"text":TEXT["AR"]["btn_send_phone"], "request_contact": True}],
             [{"text":TEXT["AR"]["back"]}]
         ], "resize_keyboard": True}
     if lang == "EN":
         return {"keyboard":[
             [{"text":TEXT["EN"]["btn_products"]},{"text":TEXT["EN"]["btn_prices"]},{"text":TEXT["EN"]["btn_about"]}],
+            [{"text":TEXT["EN"]["btn_content"]},{"text":TEXT["EN"]["btn_app"]}],
             [{"text":TEXT["EN"]["btn_send_phone"], "request_contact": True}],
             [{"text":TEXT["EN"]["back"]}]
         ], "resize_keyboard": True}
     return {"keyboard":[
         [{"text":TEXT["FA"]["btn_products"]},{"text":TEXT["FA"]["btn_prices"]},{"text":TEXT["FA"]["btn_about"]}],
+        [{"text":TEXT["FA"]["btn_content"]},{"text":TEXT["FA"]["btn_app"]}],
         [{"text":TEXT["FA"]["btn_send_phone"], "request_contact": True}],
         [{"text":TEXT["FA"]["back"]}]
     ], "resize_keyboard": True}
@@ -142,12 +163,40 @@ def send_text(chat_id, text, keyboard=None):
     if not API: return
     payload = {"chat_id": chat_id, "text": text}
     if keyboard: payload["reply_markup"] = keyboard
-    r = requests.post(API, json=payload, timeout=10)
-    return r
+    try:
+        return requests.post(API, json=payload, timeout=10)
+    except Exception:
+        return None
+
+# ---------- Helpers برای گام۴ ----------
+def get_env_text(keys:list[str]) -> str:
+    parts = []
+    for k in keys:
+        v = (os.getenv(k) or "").strip()
+        if v:
+            parts.append(v)
+    return "\n\n".join(parts) if parts else ""
+
+def content_text(lang: str) -> str:
+    suf = lang.upper()
+    keys = [f"CONTENT_BRONZE_{suf}", f"CONTENT_GOLD_{suf}", f"CONTENT_DIAMOND_{suf}"]
+    return get_env_text(keys)
+
+def app_plans_text(lang: str) -> str:
+    suf = lang.upper()
+    keys = [f"APP_BRONZE_{suf}", f"APP_SILVER_{suf}", f"APP_GOLD_{suf}", f"APP_DIAMOND_{suf}"]
+    return get_env_text(keys)
+
+def get_section(sec: str, lang: str):
+    return (os.environ.get(f"{sec}_{lang}", "") or "").strip()
 
 # ---------- محصولات (Bronze via ENV / Silver via Sheet) ----------
 CATALOG = []   # Silver+
 SELECTED = {}  # chat_id -> {name, price}
+
+# Leads (content/app)
+LEAD_CONTEXT = {}   # chat_id -> "content" | "app"
+LEAD_PENDING = {}   # chat_id -> waiting for phone
 
 def _download_sheet_csv(url:str)->str:
     r = requests.get(url, timeout=15)
@@ -203,8 +252,6 @@ def build_product_keyboard(items:list, lang:str):
     return {"keyboard": rows, "resize_keyboard": True}
 
 # ---------- ریت‌لیمیت ----------
-from collections import defaultdict, deque
-from time import time as now
 BUCKET = defaultdict(lambda: deque(maxlen=10))
 def rate_ok(uid:int, limit=5, window=5):
     q = BUCKET[uid]; t = now(); q.append(t)
@@ -230,10 +277,25 @@ def telegram():
     text = (message.get("text") or "").strip()
     contact = message.get("contact") or {}
 
-    # ذخیره شماره تماس
+    # ذخیره شماره تماس (همراه با پشتیبانی لید)
     if contact and contact.get("phone_number"):
         set_user_phone(chat_id, contact.get("phone_number"))
         lang = get_user_lang(chat_id)
+
+        # اگر درخواست لید در انتظار بود، به ادمین اعلان بده
+        src = LEAD_PENDING.pop(chat_id, None)
+        if src:
+            display_name = ((chat.get("first_name") or "") + " " + (chat.get("last_name") or "")).strip() or str(chat_id)
+            admin_text = f"NEW Lead\nSource: {src}\nUser: {display_name}\nID: {chat_id}\nPhone: {contact.get('phone_number')}"
+            for admin in ADMINS:
+                try:
+                    requests.post(API, json={"chat_id": int(admin), "text": admin_text}, timeout=10)
+                except Exception:
+                    pass
+            send_text(chat_id, TEXT[lang]["lead_saved"], keyboard=reply_keyboard(lang))
+            return jsonify({"ok": True})
+
+        # حالت عادی
         send_text(chat_id, TEXT[lang]["phone_ok"], keyboard=reply_keyboard(lang))
         return jsonify({"ok": True})
 
@@ -244,8 +306,8 @@ def telegram():
         return jsonify({"ok": True})
 
     name = (chat.get("first_name") or "") + " " + (chat.get("last_name") or "")
-    upsert_user(chat_id, name.strip())
-    lang = get_user_lang(chat_id)
+    upsert_user(chat_id, name.strip() or str(chat_id))
+    lang = get_user_lang(chat_id) or DEFAULT_LANG
 
     # /start
     if text.startswith("/start"):
@@ -277,14 +339,17 @@ def telegram():
         st = get_stats()
         msg = f"Users: {st['users_total']}\nMessages: {st['messages_total']} (24h: {st['messages_24h']})\nLangs: {st['langs']}"
         send_text(chat_id, msg); return jsonify({"ok": True})
+
     if low.startswith("/broadcast") and is_admin:
         msg = text[len("/broadcast"):].strip()
-        if not msg: send_text(chat_id, "Usage: /broadcast your message"); return jsonify({"ok": True})
+        if not msg:
+            send_text(chat_id, "Usage: /broadcast your message"); return jsonify({"ok": True})
         ids = list_user_ids(10000); sent = 0
         for uid in ids:
             try: send_text(uid, msg); sent += 1; time.sleep(0.03)
             except: pass
         send_text(chat_id, TEXT[lang]["broadcast_ok"].format(n=sent)); return jsonify({"ok": True})
+
     if low.startswith("/setlang"):
         parts = low.split()
         if len(parts)>=2 and parts[1].upper() in ["FA","EN","AR"]:
@@ -314,11 +379,45 @@ def telegram():
         send_text(chat_id, TEXT[lang]["welcome"], keyboard=reply_keyboard(lang)); return jsonify({"ok": True})
 
     # قیمت‌ها / درباره ما
-    def get_section(sec): return (os.environ.get(f"{sec}_{lang}", "") or "").strip()
     if text in [TEXT["FA"]["btn_prices"], TEXT["EN"]["btn_prices"], TEXT["AR"]["btn_prices"], "قیمت‌ها","Prices","الأسعار"]:
-        send_text(chat_id, get_section("PRICES") or TEXT[lang]["not_config"], keyboard=menu_keyboard(lang)); return jsonify({"ok": True})
+        body = get_section("PRICES", lang) or TEXT[lang]["not_config"]
+        send_text(chat_id, body, keyboard=menu_keyboard(lang)); return jsonify({"ok": True})
     if text in [TEXT["FA"]["btn_about"], TEXT["EN"]["btn_about"], TEXT["AR"]["btn_about"], "درباره ما","About","من نحن"]:
-        send_text(chat_id, get_section("ABOUT") or TEXT[lang]["not_config"], keyboard=menu_keyboard(lang)); return jsonify({"ok": True})
+        body = get_section("ABOUT", lang) or TEXT[lang]["not_config"]
+        send_text(chat_id, body, keyboard=menu_keyboard(lang)); return jsonify({"ok": True})
+
+    # 🧩 پکیج‌های محتوا
+    if text in [TEXT["FA"]["btn_content"], TEXT["EN"]["btn_content"], TEXT["AR"]["btn_content"]]:
+        LEAD_CONTEXT[chat_id] = "content"
+        body = content_text(lang) or TEXT[lang]["not_config"]
+        kb = {"keyboard":[[{"text": TEXT[lang]["btn_request"]}], [{"text": TEXT[lang]["back"]}]], "resize_keyboard": True}
+        send_text(chat_id, body, keyboard=kb); return jsonify({"ok": True})
+
+    # 🤖 پلان‌های اپ Jawab
+    if text in [TEXT["FA"]["btn_app"], TEXT["EN"]["btn_app"], TEXT["AR"]["btn_app"]]:
+        LEAD_CONTEXT[chat_id] = "app"
+        body = app_plans_text(lang) or TEXT[lang]["not_config"]
+        kb = {"keyboard":[[{"text": TEXT[lang]["btn_request"]}], [{"text": TEXT[lang]["back"]}]], "resize_keyboard": True}
+        send_text(chat_id, body, keyboard=kb); return jsonify({"ok": True})
+
+    # ✅ ثبت درخواست (Lead)
+    if text == TEXT[lang]["btn_request"]:
+        src = LEAD_CONTEXT.get(chat_id, "unknown")
+        phone_val = get_user_phone(chat_id)
+        if phone_val:
+            display_name = ((chat.get("first_name") or "") + " " + (chat.get("last_name") or "")).strip() or str(chat_id)
+            admin_text = f"NEW Lead\nSource: {src}\nUser: {display_name}\nID: {chat_id}\nPhone: {phone_val}"
+            for admin in ADMINS:
+                try:
+                    requests.post(API, json={"chat_id": int(admin), "text": admin_text}, timeout=10)
+                except Exception:
+                    pass
+            send_text(chat_id, TEXT[lang]["lead_saved"], keyboard=reply_keyboard(lang))
+        else:
+            LEAD_PENDING[chat_id] = src
+            kb = {"keyboard":[[{"text": TEXT[lang]["btn_send_phone"], "request_contact": True}], [{"text": TEXT[lang]["back"]}]], "resize_keyboard": True}
+            send_text(chat_id, TEXT[lang]["need_phone"], keyboard=kb)
+        return jsonify({"ok": True})
 
     # محصولات
     if text in [TEXT["FA"]["btn_products"], TEXT["EN"]["btn_products"], TEXT["AR"]["btn_products"], "Products","محصولات","المنتجات"]:
@@ -339,7 +438,7 @@ def telegram():
             msg = TEXT[lang]["selected"].format(name=item["name"], price=item.get("price",""))
             send_text(chat_id, msg, keyboard=confirm_keyboard(lang)); return jsonify({"ok": True})
 
-    # تأیید سفارش
+    # تأیید سفارش (برای محصولات)
     if text == TEXT[lang]["btn_confirm"]:
         sel = SELECTED.get(chat_id)
         if not sel:
@@ -351,7 +450,7 @@ def telegram():
         oid = create_order(chat_id, sel["name"], 1, sel.get("price",""))
         send_text(chat_id, TEXT[lang]["order_saved"].format(oid=oid), keyboard=reply_keyboard(lang))
 
-        # --- Admin notification (safe ASCII) ---
+        # --- Admin notification (سفارش) ---
         phone_val = get_user_phone(chat_id) or "-"
         display_name = (name or "").strip() or str(chat_id)
         admin_text = "NEW Order #{}\nUser: {}\nID: {}\nPhone: {}\nItem: {}\nPrice: {}".format(
@@ -359,11 +458,7 @@ def telegram():
         )
         for admin in ADMINS:
             try:
-                requests.post(
-                    API,
-                    json={"chat_id": int(admin), "text": admin_text},
-                    timeout=10
-                )
+                requests.post(API, json={"chat_id": int(admin), "text": admin_text}, timeout=10)
             except Exception:
                 pass
 
