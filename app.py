@@ -186,7 +186,12 @@ def get_env_text(keys:list[str]) -> str:
 
 def content_text(lang: str) -> str:
     suf = lang.upper()
-    keys = [f"CONTENT_BRONZE_{suf}", f"CONTENT_GOLD_{suf}", f"CONTENT_DIAMOND_{suf}"]
+    keys = [
+        f"CONTENT_BRONZE_{suf}",
+        f"CONTENT_SILVER_{suf}",
+        f"CONTENT_GOLD_{suf}",
+        f"CONTENT_DIAMOND_{suf}",
+    ]
     return get_env_text(keys)
 
 def app_plans_text(lang: str) -> str:
