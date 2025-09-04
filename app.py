@@ -11,6 +11,10 @@ API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage" if BOT_TOKEN else N
 BRAND_NAME = os.environ.get("BRAND_NAME", "Jawab")
 DEFAULT_LANG = (os.environ.get("DEFAULT_LANG") or "FA").upper()
 SUPPORT_WHATSAPP = os.environ.get("SUPPORT_WHATSAPP", "")
+SUPPORT_TG = (os.environ.get("SUPPORT_TG") or "").strip()
+SUPPORT_EMAIL = (os.environ.get("SUPPORT_EMAIL") or "").strip()
+# SUPPORT_WHATSAPP موجود است و همان را استفاده می‌کنیم
+SUPPORT_INSTAGRAM = (os.environ.get("SUPPORT_INSTAGRAM") or "").strip()
 ADMINS = [x.strip() for x in (os.environ.get("ADMINS") or "").split(",") if x.strip()]
 PLAN = (os.environ.get("PLAN") or "bronze").lower()
 SHEET_URL = os.environ.get("SHEET_URL", "").strip()   # برای Silver
@@ -189,6 +193,43 @@ def app_plans_text(lang: str) -> str:
 
 def get_section(sec: str, lang: str):
     return (os.environ.get(f"{sec}_{lang}", "") or "").strip()
+def build_support_text(lang: str) -> str:
+    # برچسب‌های چندزبانه
+    labels = {
+        "FA": {"title": "پشتیبانی 🛟", "tg": "تلگرام", "mail": "ایمیل", "wa": "واتساپ", "ig": "اینستاگرام"},
+        "EN": {"title": "Support 🛟", "tg": "Telegram", "mail": "Email", "wa": "WhatsApp", "ig": "Instagram"},
+        "AR": {"title": "الدعم 🛟", "tg": "تيليجرام", "mail": "البريد", "wa": "واتساب", "ig": "إنستغرام"},
+    }
+    L = labels.get(lang, labels["FA"])
+
+    lines = [L["title"]]
+
+    # Telegram
+    tg = SUPPORT_TG
+    if tg:
+        handle = tg[1:] if tg.startswith("@") else tg
+        tg_display = f"@{handle}"
+        tg_link = f"https://t.me/{handle}"
+        lines.append(f"{L['tg']}: {tg_display}  ({tg_link})")
+
+    # Email
+    if SUPPORT_EMAIL:
+        lines.append(f"{L['mail']}: {SUPPORT_EMAIL}")
+
+    # WhatsApp
+    if SUPPORT_WHATSAPP:
+        digits = "".join(ch for ch in SUPPORT_WHATSAPP if ch.isdigit() or ch == "+").lstrip("+")
+        wa_link = f"https://wa.me/{digits}"
+        lines.append(f"{L['wa']}: {SUPPORT_WHATSAPP}  ({wa_link})")
+
+    # Instagram
+    ig = SUPPORT_INSTAGRAM
+    if ig:
+        handle = ig.replace("https://instagram.com/", "").replace("http://instagram.com/", "").strip().lstrip("@")
+        ig_link = f"https://instagram.com/{handle}"
+        lines.append(f"{L['ig']}: @{handle}  ({ig_link})")
+
+    return "\n".join(lines)
 
 # ---------- محصولات (Bronze via ENV / Silver via Sheet) ----------
 CATALOG = []   # Silver+
@@ -465,9 +506,12 @@ def telegram():
         SELECTED.pop(chat_id, None)
         return jsonify({"ok": True})
 
-    # پشتیبانی
+    # پشتیبانی (داینامیک از ENV)
     if text in ["پشتیبانی 🛟","الدعم 🛟","Support 🛟","پشتیبانی","الدعم","Support"]:
-        send_text(chat_id, TEXT[lang]["support"], keyboard=reply_keyboard(lang)); return jsonify({"ok": True})
+        body = build_support_text(lang)
+        send_text(chat_id, body, keyboard=reply_keyboard(lang))
+        return jsonify({"ok": True})
+
 
     # زبان
     if text in ["زبان 🌐","اللغة 🌐","Language 🌐","زبان","اللغة","Language"]:
