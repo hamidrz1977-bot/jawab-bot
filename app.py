@@ -415,9 +415,10 @@ def telegram():
         log_message(chat_id, text, "in"); log_message(chat_id, "menu", "out")
         return jsonify({"ok": True})
 
-    # برگشت
+    # برگشت: به منوی اصلی (نه صفحه‌ی خوش‌آمد)
     if text in [TEXT[lang]["back"]]:
-        send_text(chat_id, TEXT[lang]["welcome"], keyboard=reply_keyboard(lang)); return jsonify({"ok": True})
+        send_text(chat_id, TEXT[lang]["choose"], keyboard=menu_keyboard(lang))
+        return jsonify({"ok": True})
 
     # قیمت‌ها / درباره ما
     if text in [TEXT["FA"]["btn_prices"], TEXT["EN"]["btn_prices"], TEXT["AR"]["btn_prices"], "قیمت‌ها","Prices","الأسعار"]:
