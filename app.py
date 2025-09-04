@@ -55,6 +55,7 @@ TEXT = {
         "btn_confirm": "✅ ثبت درخواست",
         "order_saved": "درخواستت ثبت شد. کد سفارش: #{oid}\nهمکاران ما با شما هماهنگ می‌کنند.",
         "need_phone": "برای ثبت سفارش، لطفاً با دکمه «📞 ارسال شماره» شماره‌ات را ارسال کن.",
+        "need_phone_lead": "برای ثبت درخواست، لطفاً با دکمه «📞 ارسال شماره» شماره‌ات را ارسال کن.",
         "selected": "انتخاب شد: {name} — {price}",
         # جدید:
         "btn_content": "🧩 پکیج‌های محتوا",
@@ -86,6 +87,7 @@ TEXT = {
         "btn_confirm": "✅ Confirm request",
         "order_saved": "Your request is saved. Order ID: #{oid}\nWe will contact you shortly.",
         "need_phone": "To place the order, please tap “📞 Share phone”.",
+        "need_phone_lead": "To submit your request, please tap “📞 Share phone”.",
         "selected": "Selected: {name} — {price}",
         # new:
         "btn_content": "🧩 Content Packages",
@@ -117,6 +119,7 @@ TEXT = {
         "btn_confirm": "✅ تأكيد الطلب",
         "order_saved": "تم حفظ طلبك. رقم الطلب: #{oid}\nسنتواصل معك قريباً.",
         "need_phone": "لإتمام الطلب، الرجاء الضغط على «📞 إرسال الرقم».",
+        "need_phone_lead": "لإتمام طلبك، الرجاء الضغط على «📞 إرسال الرقم».",
         "selected": "تم اختيار: {name} — {price}",
         # جديد:
         "btn_content": "🧩 باقات المحتوى",
@@ -458,7 +461,7 @@ def telegram():
         else:
             LEAD_PENDING[chat_id] = src
             kb = {"keyboard":[[{"text": TEXT[lang]["btn_send_phone"], "request_contact": True}], [{"text": TEXT[lang]["back"]}]], "resize_keyboard": True}
-            send_text(chat_id, TEXT[lang]["need_phone"], keyboard=kb)
+            send_text(chat_id, TEXT[lang].get("need_phone_lead", TEXT[lang]["need_phone"]), keyboard=kb)
         return jsonify({"ok": True})
 
     # محصولات
