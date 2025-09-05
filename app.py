@@ -206,8 +206,13 @@ def app_plans_text(lang: str) -> str:
     keys = [f"APP_BRONZE_{suf}", f"APP_SILVER_{suf}", f"APP_GOLD_{suf}", f"APP_DIAMOND_{suf}"]
     return get_env_text(keys)
 
-def get_section(sec: str, lang: str):
-def btn_products_label(lang: str) -> str:
+def get_section(sec: str, lang: str) -> str:
+    """Return section text from env by language suffix; empty string if missing."""
+    lang = (lang or "").strip().upper()
+    suf = lang if lang in ("FA", "AR", "EN") else "EN"
+    # سعی می‌کنیم چند کلید محتمل را امتحان کنیم، بسته به نام سکشن
+    candidates = [f"{sec}_{suf}", f"{sec}_TEXT_{suf}", f"{sec}"]
+    return get_env_text(candidates) or ""
     # برچسب دکمه «محصولات» بر اساس زبان
     labels = {
         "FA": "محصولات 🛍",
