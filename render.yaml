@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: jawab-bot
+    name: jawab-bot-01
     env: python
     region: frankfurt
     plan: free
