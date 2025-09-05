@@ -208,12 +208,15 @@ def app_plans_text(lang: str) -> str:
 
 def get_section(sec: str, lang: str):
 def btn_products_label(lang: str) -> str:
-    # اگر ENV خالی بود، به متن پیش‌فرض برمی‌گردد
-    if lang == "AR":
-        return BTN_PRODUCTS_AR or TEXT["AR"]["btn_products"]
-    if lang == "EN":
-        return BTN_PRODUCTS_EN or TEXT["EN"]["btn_products"]
-    return BTN_PRODUCTS_FA or TEXT["FA"]["btn_products"]
+    # برچسب دکمه «محصولات» بر اساس زبان
+    labels = {
+        "FA": "محصولات 🛍",
+        "AR": "المنتجات 🛍",
+        "EN": "Products 🛍",
+    }
+    code = (lang or "").strip().upper()
+    return labels.get(code, labels["EN"])
+
 
 def catalog_title(lang: str) -> str:
     fallback = TEXT[lang]["list_products"]
