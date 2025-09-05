@@ -390,22 +390,53 @@ def _handle_telegram_update(update: dict):
 
     # ادمین
     is_admin = str(chat_id) in ADMINS
+
+    # /stats (admins only)
     if low.startswith("/stats") and is_admin:
         st = get_stats()
         msg = f"Users: {st['users_total']}\nMessages: {st['messages_total']} (24h: {st['messages_24h']})\nLangs: {st['langs']}"
-        send_text(chat_id, msg); return {"ok": True}
+        send_text(chat_id, msg)
+        return jsonify({"ok": True})
 
+    # /share — لینک معرفی اختصاصی (برای همه)
+    if low.startswith("/share"):
+        bot_user = os.getenv("BOT_USERNAME", "").strip()
+        if not bot_user:
+            msg = (
+                "برای ساخت لینک معرفی، کلید ENV به نام BOT_USERNAME لازم است.\n"
+                "مثال: BOT_USERNAME = ArabiaSocialBot (بدون @)"
+            )
+            send_text(chat_id, msg)
+            return jsonify({"ok": True})
+
+        # ساخت لینک با پارامتر ref<ID> (در /start ذخیره می‌شود)
+        ref = f"ref{chat_id}"
+        link = f"https://t.me/{bot_user}?start={ref}"
+        msg = (
+            "📣 لینک معرفی اختصاصی شما آماده است:\n"
+            f"{link}\n\n"
+            "هر کسی از این لینک وارد شود، در ادمین «Source» با همین کد دیده می‌شود."
+        )
+        send_text(chat_id, msg)
+        return jsonify({"ok": True})
+
+    # /broadcast (admins only)
     if low.startswith("/broadcast") and is_admin:
         msg = text[len("/broadcast"):].strip()
         if not msg:
-            send_text(chat_id, "Usage: /broadcast your message"); return {"ok": True}
-        ids = list_user_ids(10000); sent = 0
+            send_text(chat_id, "Usage: /broadcast your message")
+            return jsonify({"ok": True})
+        ids = list_user_ids(10000)
+        sent = 0
         for uid in ids:
             try:
-                send_text(uid, msg); sent += 1; time.sleep(0.03)
+                send_text(uid, msg)
+                sent += 1
+                time.sleep(0.03)
             except Exception:
                 pass
-        send_text(chat_id, TEXT[lang]["broadcast_ok"].format(n=sent)); return {"ok": True}
+        send_text(chat_id, TEXT[lang]["broadcast_ok"].format(n=sent))
+        return jsonify({"ok": True})
 
     if low.startswith("/setlang"):
         parts = low.split()
