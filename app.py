@@ -511,13 +511,6 @@ if text in [
     send_text(chat_id, catalog_title(lang), keyboard=kb)
     return jsonify({"ok": True})
 
-def _tmp_products_block(lang: str):
-        items = load_products(lang)
-        if not items:
-            send_text(chat_id, TEXT[lang]["catalog_empty"], keyboard=menu_keyboard(lang)); return jsonify({"ok": True})
-        kb = build_product_keyboard(items, lang)
-        send_text(chat_id, TEXT[lang]["list_products"], keyboard=kb); return jsonify({"ok": True})
-
     # انتخاب آیتم: الگوی "n) name" یا فقط "n"
     m = re.match(r"^\s*(\d+)\s*\)?", text)
     if m:
