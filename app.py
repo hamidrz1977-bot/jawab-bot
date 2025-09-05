@@ -465,9 +465,17 @@ def _handle_telegram_update(update: dict):
         log_message(chat_id, text, "in"); log_message(chat_id, "menu", "out")
         return {"ok": True}
 
-    # برگشت
-    if text == TEXT[lang]["back"]:
-        send_text(chat_id, TEXT[lang]["choose"], keyboard=menu_keyboard(lang)); return {"ok": True}
+    # برگشت: چند برچسب/ایموجی را بپذیر (FA/AR/EN)
+    BACK_ALIASES = [
+        TEXT["FA"]["back"], TEXT["AR"]["back"], TEXT["EN"]["back"],
+        "بازگشت", "↩️ بازگشت",
+        "العودة", "🔙 رجوع", "رجوع",
+        "Back", "🔙 Back"
+    ]
+    if text.strip() in BACK_ALIASES:
+        # برگرد به منوی اصلی (نه صفحه خوش‌آمد)
+        send_text(chat_id, TEXT[lang]["choose"], keyboard=menu_keyboard(lang))
+        return jsonify({"ok": True})
 
     # قیمت‌ها / درباره ما
     if text in [TEXT["FA"]["btn_prices"], TEXT["EN"]["btn_prices"], TEXT["AR"]["btn_prices"], "قیمت‌ها","Prices","الأسعار"]:
