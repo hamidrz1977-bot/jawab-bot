@@ -1,30 +1,126 @@
 services:
   - type: web
-    name: jawab-bot-01
+    name: jawab-bot          # اسم پیش‌فرض؛ موقع دیپلوی می‌تونی تغییرش بدی (مثلاً sahatx-bot)
     env: python
     region: frankfurt
-    plan: free
+    plan: free               # یا starter/pro بسته به نیاز
     autoDeploy: true
 
     buildCommand: |
-      pip install --upgrade pip
       pip install -r requirements.txt
-
     startCommand: |
-      gunicorn app:app --bind 0.0.0.0:$PORT
-
-    # اگر healthz داری همین را بگذار؛ اگر نداری، می‌توانیم به / تغییرش دهیم
-    healthCheckPath: /healthz
+      gunicorn app:app --preload -b 0.0.0.0:$PORT
 
     envVars:
-      - key: ENV
-        value: production
+      # هسته
       - key: TELEGRAM_BOT_TOKEN
         sync: false
-      - key: OPENAI_API_KEY
+      - key: BRAND_NAME
+        value: Arabia Social
+      - key: DEFAULT_LANG
+        value: AR
+      - key: ADMINS
         sync: false
-      - key: WEBHOOK_SECRET
-        generateValue: true
-      - key: DATABASE_URL
+      - key: PLAN
+        value: silver
+      - key: SHEET_URL
+        sync: false
+
+      # پشتیبانی
+      - key: SUPPORT_TG
+        sync: false
+      - key: SUPPORT_EMAIL
+        sync: false
+      - key: SUPPORT_WHATSAPP
+        sync: false
+      - key: SUPPORT_INSTAGRAM
+        sync: false
+
+      # دکمهٔ محصولات و تیتر کاتالوگ (اختیاری)
+      - key: BTN_PRODUCTS_AR
+        value: القائمة 🧾
+      - key: BTN_PRODUCTS_EN
+        value: Menu 🧾
+      - key: BTN_PRODUCTS_FA
+        value: منو 🧾
+      - key: CATALOG_TITLE_AR
+        value: قائمة المنتجات (اختر رقماً):
+      - key: CATALOG_TITLE_EN
+        value: Products list (pick a number):
+      - key: CATALOG_TITLE_FA
+        value: لیست محصولات (شماره را انتخاب کن):
+
+      # درباره‌ما / قیمت‌ها (سه‌زبانه)
+      - key: ABOUT_AR
+        sync: false
+      - key: ABOUT_EN
+        sync: false
+      - key: ABOUT_FA
+        sync: false
+      - key: PRICES_AR
+        sync: false
+      - key: PRICES_EN
+        sync: false
+      - key: PRICES_FA
+        sync: false
+
+      # پکیج‌های محتوا (Bronze/Silver/Gold/Diamond) — هر سه زبان
+      - key: CONTENT_BRONZE_AR
+        sync: false
+      - key: CONTENT_SILVER_AR
+        sync: false
+      - key: CONTENT_GOLD_AR
+        sync: false
+      - key: CONTENT_DIAMOND_AR
+        sync: false
+      - key: CONTENT_BRONZE_EN
+        sync: false
+      - key: CONTENT_SILVER_EN
+        sync: false
+      - key: CONTENT_GOLD_EN
+        sync: false
+      - key: CONTENT_DIAMOND_EN
+        sync: false
+      - key: CONTENT_BRONZE_FA
+        sync: false
+      - key: CONTENT_SILVER_FA
+        sync: false
+      - key: CONTENT_GOLD_FA
+        sync: false
+      - key: CONTENT_DIAMOND_FA
+        sync: false
+
+      # پلان‌های اپ (Bronze/Silver/Gold/Diamond) — هر سه زبان
+      - key: APP_BRONZE_AR
+        sync: false
+      - key: APP_SILVER_AR
+        sync: false
+      - key: APP_GOLD_AR
+        sync: false
+      - key: APP_DIAMOND_AR
+        sync: false
+      - key: APP_BRONZE_EN
+        sync: false
+      - key: APP_SILVER_EN
+        sync: false
+      - key: APP_GOLD_EN
+        sync: false
+      - key: APP_DIAMOND_EN
+        sync: false
+      - key: APP_BRONZE_FA
+        sync: false
+      - key: APP_SILVER_FA
+        sync: false
+      - key: APP_GOLD_FA
+        sync: false
+      - key: APP_DIAMOND_FA
+        sync: false
+
+      # محصولات (اگر PLAN=bronze) — اختیاری
+      - key: PRODUCTS_AR
+        sync: false
+      - key: PRODUCTS_EN
+        sync: false
+      - key: PRODUCTS_FA
         sync: false
 
