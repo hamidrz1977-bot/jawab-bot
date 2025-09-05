@@ -15,6 +15,13 @@ SUPPORT_TG = (os.environ.get("SUPPORT_TG") or "").strip()
 SUPPORT_EMAIL = (os.environ.get("SUPPORT_EMAIL") or "").strip()
 # SUPPORT_WHATSAPP موجود است و همان را استفاده می‌کنیم
 SUPPORT_INSTAGRAM = (os.environ.get("SUPPORT_INSTAGRAM") or "").strip()
+CATALOG_TITLE_AR = (os.getenv("CATALOG_TITLE_AR") or "").strip()
+CATALOG_TITLE_EN = (os.getenv("CATALOG_TITLE_EN") or "").strip()
+CATALOG_TITLE_FA = (os.getenv("CATALOG_TITLE_FA") or "").strip()
+
+BTN_PRODUCTS_AR = (os.getenv("BTN_PRODUCTS_AR") or "").strip()
+BTN_PRODUCTS_EN = (os.getenv("BTN_PRODUCTS_EN") or "").strip()
+BTN_PRODUCTS_FA = (os.getenv("BTN_PRODUCTS_FA") or "").strip()
 ADMINS = [x.strip() for x in (os.environ.get("ADMINS") or "").split(",") if x.strip()]
 PLAN = (os.environ.get("PLAN") or "bronze").lower()
 SHEET_URL = os.environ.get("SHEET_URL", "").strip()   # برای Silver
@@ -140,23 +147,23 @@ def reply_keyboard(lang):
 def menu_keyboard(lang):
     if lang == "AR":
         return {"keyboard":[
-            [{"text":TEXT["AR"]["btn_products"]},{"text":TEXT["AR"]["btn_prices"]},{"text":TEXT["AR"]["btn_about"]}],
-            [{"text":TEXT["AR"]["btn_content"]},{"text":TEXT["AR"]["btn_app"]}],
-            [{"text":TEXT["AR"]["btn_send_phone"], "request_contact": True}],
-            [{"text":TEXT["AR"]["back"]}]
+            [ {"text": btn_products_label("AR")}, {"text":TEXT["AR"]["btn_prices"]}, {"text":TEXT["AR"]["btn_about"]} ],
+            [ {"text":TEXT["AR"]["btn_content"]}, {"text":TEXT["AR"]["btn_app"]} ],
+            [ {"text":TEXT["AR"]["btn_send_phone"], "request_contact": True} ],
+            [ {"text":TEXT["AR"]["back"]} ]
         ], "resize_keyboard": True}
     if lang == "EN":
         return {"keyboard":[
-            [{"text":TEXT["EN"]["btn_products"]},{"text":TEXT["EN"]["btn_prices"]},{"text":TEXT["EN"]["btn_about"]}],
-            [{"text":TEXT["EN"]["btn_content"]},{"text":TEXT["EN"]["btn_app"]}],
-            [{"text":TEXT["EN"]["btn_send_phone"], "request_contact": True}],
-            [{"text":TEXT["EN"]["back"]}]
+            [ {"text": btn_products_label("EN")}, {"text":TEXT["EN"]["btn_prices"]}, {"text":TEXT["EN"]["btn_about"]} ],
+            [ {"text":TEXT["EN"]["btn_content"]}, {"text":TEXT["EN"]["btn_app"]} ],
+            [ {"text":TEXT["EN"]["btn_send_phone"], "request_contact": True} ],
+            [ {"text":TEXT["EN"]["back"]} ]
         ], "resize_keyboard": True}
     return {"keyboard":[
-        [{"text":TEXT["FA"]["btn_products"]},{"text":TEXT["FA"]["btn_prices"]},{"text":TEXT["FA"]["btn_about"]}],
-        [{"text":TEXT["FA"]["btn_content"]},{"text":TEXT["FA"]["btn_app"]}],
-        [{"text":TEXT["FA"]["btn_send_phone"], "request_contact": True}],
-        [{"text":TEXT["FA"]["back"]}]
+        [ {"text": btn_products_label("FA")}, {"text":TEXT["FA"]["btn_prices"]}, {"text":TEXT["FA"]["btn_about"]} ],
+        [ {"text":TEXT["FA"]["btn_content"]}, {"text":TEXT["FA"]["btn_app"]} ],
+        [ {"text":TEXT["FA"]["btn_send_phone"], "request_contact": True} ],
+        [ {"text":TEXT["FA"]["back"]} ]
     ], "resize_keyboard": True}
 
 def confirm_keyboard(lang):
@@ -200,6 +207,21 @@ def app_plans_text(lang: str) -> str:
     return get_env_text(keys)
 
 def get_section(sec: str, lang: str):
+def btn_products_label(lang: str) -> str:
+    # اگر ENV خالی بود، به متن پیش‌فرض برمی‌گردد
+    if lang == "AR":
+        return BTN_PRODUCTS_AR or TEXT["AR"]["btn_products"]
+    if lang == "EN":
+        return BTN_PRODUCTS_EN or TEXT["EN"]["btn_products"]
+    return BTN_PRODUCTS_FA or TEXT["FA"]["btn_products"]
+
+def catalog_title(lang: str) -> str:
+    fallback = TEXT[lang]["list_products"]
+    if lang == "AR":
+        return CATALOG_TITLE_AR or fallback
+    if lang == "EN":
+        return CATALOG_TITLE_EN or fallback
+    return CATALOG_TITLE_FA or fallback
     return (os.environ.get(f"{sec}_{lang}", "") or "").strip()
 def build_support_text(lang: str) -> str:
     # برچسب‌های چندزبانه
@@ -469,8 +491,18 @@ def telegram():
             send_text(chat_id, TEXT[lang].get("need_phone_lead", TEXT[lang]["need_phone"]), keyboard=kb)
         return jsonify({"ok": True})
 
-    # محصولات
-    if text in [TEXT["FA"]["btn_products"], TEXT["EN"]["btn_products"], TEXT["AR"]["btn_products"], "Products","محصولات","المنتجات"]:
+# محصولات (با دکمهٔ سفارشی از ENV)
+if text in [
+    TEXT["FA"]["btn_products"], TEXT["EN"]["btn_products"], TEXT["AR"]["btn_products"],
+    btn_products_label(lang), "Products", "محصولات", "المنتجات"
+]:
+    items = load_products(lang)
+    if not items:
+        send_text(chat_id, TEXT[lang]["catalog_empty"], keyboard=menu_keyboard(lang)); return jsonify({"ok": True})
+    kb = build_product_keyboard(items, lang)
+    send_text(chat_id, catalog_title(lang), keyboard=kb)
+    return jsonify({"ok": True})
+
         items = load_products(lang)
         if not items:
             send_text(chat_id, TEXT[lang]["catalog_empty"], keyboard=menu_keyboard(lang)); return jsonify({"ok": True})
