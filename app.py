@@ -766,9 +766,9 @@ def telegram():
         send_text(chat_id, TEXT[lang]["choose"], keyboard=menu_keyboard(lang))
         return jsonify({"ok": True})
 
-    # بازگشت → منو
-    if text.strip() in BACK_ALIASES:
-        send_text(chat_id, TEXT[lang]["choose"], keyboard=menu_keyboard(lang))
+    # بازگشت (همیشه به صفحه اصلی)
+    elif text.strip() in BACK_ALIASES:
+        send_text(chat_id, TEXT[lang]["welcome"], keyboard=reply_keyboard(lang))
         return jsonify({"ok": True})
 
     # قیمت‌ها
