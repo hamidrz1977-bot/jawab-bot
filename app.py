@@ -580,22 +580,287 @@ def _handle_telegram_update(update: dict):
     return {"ok": True}
 
 @app.route("/webhook/telegram", methods=["GET","POST"])
-@app.route("/telegram", methods=["GET","POST"])
+@app.route("/telegram", methods=["GET", "POST"])
 def telegram():
+    # --- health / token guard ---
     if request.method == "GET":
         return "OK", 200
     if not BOT_TOKEN:
         return jsonify({"error": "TELEGRAM_BOT_TOKEN missing"}), 500
 
-    # (اختیاری) Secret-Token بررسی شود
+    # (اختیاری) Secret-Token برای وبهوک امن
     secret_env = os.getenv("WEBHOOK_SECRET", "")
     secret_hdr = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
     if secret_env and secret_hdr != secret_env:
         return "unauthorized", 401
 
+    # --- parse update ---
     update = request.get_json(silent=True) or {}
-    result = _handle_telegram_update(update)
-    return jsonify(result)
+    message = update.get("message") or update.get("edited_message") or {}
+    chat = message.get("chat") or {}
+    chat_id = chat.get("id")
+    text = (message.get("text") or "").strip()
+    contact = message.get("contact") or {}
+
+    if not chat_id:
+        return jsonify({"ok": True})
+
+    # ذخیره شماره تماس (share contact)
+    if contact and contact.get("phone_number"):
+        set_user_phone(chat_id, contact.get("phone_number"))
+        lang_now = get_user_lang(chat_id)
+        send_text(chat_id, TEXT[lang_now]["phone_ok"], keyboard=reply_keyboard(lang_now))
+        return jsonify({"ok": True})
+
+    if not text:
+        return jsonify({"ok": True})
+
+    # ریت‌لیمیت
+    if not rate_ok(chat_id):
+        return jsonify({"ok": True})
+
+    # ثبت/به‌روزرسانی کاربر + زبان
+    name = (chat.get("first_name") or "") + " " + (chat.get("last_name") or "")
+    upsert_user(chat_id, name.strip())
+    lang = get_user_lang(chat_id)
+    low = text.lower()
+    norm = text.strip().upper()
+
+    # /start (+ tracking source)
+    if text.startswith("/start"):
+        parts = text.split(" ", 1)
+        if len(parts) == 2 and parts[1].strip():
+            try:
+                set_user_source(chat_id, parts[1].strip()[:64])
+            except Exception:
+                pass
+        send_text(chat_id, TEXT[lang]["welcome"], keyboard=reply_keyboard(lang))
+        log_message(chat_id, text, "in")
+        log_message(chat_id, "welcome", "out")
+        return jsonify({"ok": True})
+
+    # انتخاب زبان با تایپ
+    if norm in ["FA", "FARSI", "فارسی"]:
+        set_user_lang(chat_id, "FA"); lang = "FA"
+        send_text(chat_id, TEXT[lang]["set_ok"], keyboard=reply_keyboard(lang))
+        return jsonify({"ok": True})
+    if norm in ["EN", "ENG", "ENGLISH", "انگلیسی"]:
+        set_user_lang(chat_id, "EN"); lang = "EN"
+        send_text(chat_id, TEXT[lang]["set_ok"], keyboard=reply_keyboard(lang))
+        return jsonify({"ok": True})
+    if norm in ["AR", "ARA", "ARABIC", "العربية", "عربی"]:
+        set_user_lang(chat_id, "AR"); lang = "AR"
+        send_text(chat_id, TEXT[lang]["set_ok"], keyboard=reply_keyboard(lang))
+        return jsonify({"ok": True})
+
+    # --- admin tools ---
+    is_admin = str(chat_id) in ADMINS
+
+    # /stats
+    if low.startswith("/stats") and is_admin:
+        st = get_stats()
+        msg = f"Users: {st['users_total']}\nMessages: {st['messages_total']} (24h: {st['messages_24h']})\nLangs: {st['langs']}"
+        send_text(chat_id, msg)
+        return jsonify({"ok": True})
+
+    # /share — لینک معرفی اختصاصی
+    if low.startswith("/share"):
+        bot_user = os.getenv("BOT_USERNAME", "").strip()
+        if not bot_user:
+            send_text(chat_id,
+                      "برای ساخت لینک معرفی، کلید ENV به نام BOT_USERNAME لازم است.\n"
+                      "مثال: BOT_USERNAME = ArabiaSocialBot (بدون @)")
+            return jsonify({"ok": True})
+        ref = f"ref{chat_id}"
+        link = f"https://t.me/{bot_user}?start={ref}"
+        send_text(chat_id,
+                  "📣 لینک معرفی اختصاصی شما آماده است:\n"
+                  f"{link}\n\n"
+                  "هر کسی از این لینک وارد شود، در ادمین «Source» با همین کد دیده می‌شود.")
+        return jsonify({"ok": True})
+
+    # /broadcast <msg>
+    if low.startswith("/broadcast") and is_admin:
+        msg = text[len("/broadcast"):].strip()
+        if not msg:
+            send_text(chat_id, "Usage: /broadcast your message")
+            return jsonify({"ok": True})
+        ids = list_user_ids(10000); sent = 0
+        for uid in ids:
+            try:
+                send_text(uid, msg); sent += 1; time.sleep(0.03)
+            except Exception:
+                pass
+        send_text(chat_id, TEXT[lang]["broadcast_ok"].format(n=sent))
+        return jsonify({"ok": True})
+
+    # /setlang
+    if low.startswith("/setlang"):
+        parts = low.split()
+        if len(parts) >= 2 and parts[1].upper() in ["FA", "EN", "AR"]:
+            set_user_lang(chat_id, parts[1].upper()); lang = parts[1].upper()
+            send_text(chat_id, TEXT[lang]["set_ok"], keyboard=reply_keyboard(lang))
+            return jsonify({"ok": True})
+        send_text(chat_id, TEXT[lang]["language"], keyboard=lang_keyboard())
+        return jsonify({"ok": True})
+
+    # Silver: /sync از شیت
+    if low.startswith("/sync"):
+        if not is_admin:
+            send_text(chat_id, TEXT[lang]["no_perm"])
+            return jsonify({"ok": True})
+        if PLAN in ["silver", "gold", "diamond"]:
+            try:
+                n = sync_catalog_from_sheet()
+                send_text(chat_id, TEXT[lang]["sync_ok"].format(n=n))
+            except Exception as e:
+                send_text(chat_id, TEXT[lang]["sync_fail"] + f"\n{e}")
+        else:
+            send_text(chat_id, "Not available in your plan.")
+        return jsonify({"ok": True})
+
+    # ---------- Intentها ----------
+
+    MENU_ALIASES = ["منو 🗂", "القائمة 🗂", "Menu 🗂", "منو", "القائمة", "Menu"]
+
+    BACK_ALIASES = [
+        TEXT["FA"]["back"], TEXT["AR"]["back"], TEXT["EN"]["back"],
+        "بازگشت", "↩️ بازگشت", "رجوع", "العودة", "🔙 رجوع", "Back", "🔙 Back"
+    ]
+
+    PRICES_ALIASES = [
+        TEXT["FA"]["btn_prices"], TEXT["EN"]["btn_prices"], TEXT["AR"]["btn_prices"],
+        "قیمت‌ها", "Prices", "الأسعار"
+    ]
+
+    ABOUT_ALIASES = [
+        TEXT["FA"]["btn_about"], TEXT["EN"]["btn_about"], TEXT["AR"]["btn_about"],
+        "درباره ما", "دربارهٔ ما", "About", "من نحن"
+    ]
+
+    PRODUCTS_ALIASES = [
+        TEXT["FA"]["btn_products"], TEXT["EN"]["btn_products"], TEXT["AR"]["btn_products"],
+        btn_products_label(lang),  # از ENV
+        "Products", "محصولات", "المنتجات", "القائمة", "Menu", "منو"
+    ]
+
+    CONTENT_ALIASES = [
+        TEXT["FA"].get("btn_content", "🧩 پکیج‌های محتوا"),
+        TEXT["EN"].get("btn_content", "🧩 Content Packages"),
+        TEXT["AR"].get("btn_content", "🧩 باقات المحتوى"),
+        "🧩 پکیج‌های محتوا", "Content Packages", "باقات المحتوى"
+    ]
+
+    APP_ALIASES = [
+        TEXT["FA"].get("btn_app", "🤖 پلان‌های اپ Jawab"),
+        TEXT["EN"].get("btn_app", "🤖 Jawab App Plans"),
+        TEXT["AR"].get("btn_app", "🤖 خطط تطبيق Jawab"),
+        "Jawab App Plans", "خطط تطبيق Jawab", "پلان‌های اپ Jawab"
+    ]
+
+    def _get_section(sec: str) -> str:
+        return (os.environ.get(f"{sec}_{lang}", "") or "").strip()
+
+    # منو
+    if text in MENU_ALIASES:
+        send_text(chat_id, TEXT[lang]["choose"], keyboard=menu_keyboard(lang))
+        return jsonify({"ok": True})
+
+    # بازگشت → منو
+    if text.strip() in BACK_ALIASES:
+        send_text(chat_id, TEXT[lang]["choose"], keyboard=menu_keyboard(lang))
+        return jsonify({"ok": True})
+
+    # قیمت‌ها
+    if text in PRICES_ALIASES:
+        send_text(chat_id, _get_section("PRICES") or TEXT[lang]["not_config"], keyboard=menu_keyboard(lang))
+        return jsonify({"ok": True})
+
+    # درباره‌ما
+    if text in ABOUT_ALIASES:
+        send_text(chat_id, _get_section("ABOUT") or TEXT[lang]["not_config"], keyboard=menu_keyboard(lang))
+        return jsonify({"ok": True})
+
+    # محصولات
+    if text in PRODUCTS_ALIASES:
+        items = load_products(lang)
+        if not items:
+            send_text(chat_id, TEXT[lang]["catalog_empty"], keyboard=menu_keyboard(lang))
+            return jsonify({"ok": True})
+        kb = build_product_keyboard(items, lang)
+        send_text(chat_id, catalog_title(lang), keyboard=kb)
+        return jsonify({"ok": True})
+
+    # پکیج‌های محتوا
+    if text in CONTENT_ALIASES:
+        body = content_text(lang)
+        send_text(chat_id, (body or "").strip() or TEXT[lang]["not_config"], keyboard=menu_keyboard(lang))
+        return jsonify({"ok": True})
+
+    # پلان‌های اپ
+    if text in APP_ALIASES:
+        body = app_plans_text(lang)
+        send_text(chat_id, (body or "").strip() or TEXT[lang]["not_config"], keyboard=menu_keyboard(lang))
+        return jsonify({"ok": True})
+
+    # انتخاب آیتم: "n" یا "n) ..."
+    m = re.match(r"^\s*(\d+)\s*\)?", text)
+    if m:
+        idx = int(m.group(1)) - 1
+        items = load_products(lang)
+        top10 = items[:10]
+        if 0 <= idx < len(top10):
+            it = top10[idx]
+            SELECTED[chat_id] = {"name": it.get("name", ""), "price": it.get("price", "")}
+            msg = TEXT[lang]["selected"].format(name=it.get("name", ""), price=it.get("price", ""))
+            send_text(chat_id, msg, keyboard=confirm_keyboard(lang))
+            return jsonify({"ok": True})
+
+    # تأیید سفارش/درخواست
+    if text == TEXT[lang]["btn_confirm"]:
+        sel = SELECTED.get(chat_id)
+        if not sel:
+            send_text(chat_id, TEXT[lang]["list_products"], keyboard=menu_keyboard(lang))
+            return jsonify({"ok": True})
+        phone = get_user_phone(chat_id)
+        if not phone:
+            need_msg = TEXT[lang].get("need_phone_lead", TEXT[lang]["need_phone"])
+            send_text(chat_id, need_msg, keyboard=menu_keyboard(lang))
+            return jsonify({"ok": True})
+
+        # ایجاد سفارش و اعلام به ادمین
+        oid = create_order(chat_id, sel["name"], 1, sel.get("price", ""))
+        send_text(chat_id, TEXT[lang]["order_saved"].format(oid=oid), keyboard=reply_keyboard(lang))
+
+        phone_val = get_user_phone(chat_id) or "-"
+        display_name = (name or "").strip() or str(chat_id)
+        admin_text = (
+            "NEW Order #{}\nUser: {}\nID: {}\nPhone: {}\nItem: {}\nPrice: {}"
+        ).format(oid, display_name, chat_id, phone_val, sel["name"], sel.get("price", ""))
+        for admin in ADMINS:
+            try:
+                requests.post(API, json={"chat_id": int(admin), "text": admin_text}, timeout=10)
+            except Exception:
+                pass
+
+        SELECTED.pop(chat_id, None)
+        return jsonify({"ok": True})
+
+    # پشتیبانی
+    if text in ["پشتیبانی 🛟", "الدعم 🛟", "Support 🛟", "پشتیبانی", "الدعم", "Support"]:
+        send_text(chat_id, TEXT[lang]["support"], keyboard=reply_keyboard(lang))
+        return jsonify({"ok": True})
+
+    # زبان (نمایش انتخاب)
+    if text in ["زبان 🌐", "اللغة 🌐", "Language 🌐", "زبان", "اللغة", "Language"]:
+        send_text(chat_id, TEXT[lang]["language"], keyboard=lang_keyboard())
+        return jsonify({"ok": True})
+
+    # پیش‌فرض
+    log_message(chat_id, text, "in")
+    send_text(chat_id, TEXT[lang]["unknown"], keyboard=reply_keyboard(lang))
+    log_message(chat_id, "unknown", "out")
+    return jsonify({"ok": True})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
