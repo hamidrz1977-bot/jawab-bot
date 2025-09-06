@@ -5,6 +5,8 @@ from collections import defaultdict, deque
 from time import time as now
 
 # ---------- ENV ----------
+SHOW_PRODUCTS = (os.getenv("SHOW_PRODUCTS", "0").strip().lower() in ["1","true","yes","on"])
+
 BOT_TOKEN = os.environ.get("TG_BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN")
 API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage" if BOT_TOKEN else None
 
@@ -144,26 +146,60 @@ def reply_keyboard(lang: str):
     return {"keyboard":[[{"text":"منو 🗂"},{"text":"پشتیبانی 🛟"}],[{"text":"زبان 🌐"}]],"resize_keyboard":True}
 
 def menu_keyboard(lang: str):
+    # لیبل‌های محتوا و اپ (اگر در TEXT نبود، پیش‌فرض بگذار)
+    btn_content = TEXT[lang].get(
+        "btn_content",
+        "🧩 پکیج‌های محتوا" if lang == "FA" else ("🧩 باقات المحتوى" if lang == "AR" else "🧩 Content Packages")
+    )
+    btn_app = TEXT[lang].get(
+        "btn_app",
+        "🤖 پلان‌های اپ Jawab" if lang == "FA" else ("🤖 خطط تطبيق Jawab" if lang == "AR" else "🤖 Jawab App Plans")
+    )
+
     if lang == "AR":
-        return {"keyboard":[
-            [ {"text": btn_products_label("AR")}, {"text":TEXT["AR"]["btn_prices"]}, {"text":TEXT["AR"]["btn_about"]} ],
-            [ {"text":TEXT["AR"]["btn_content"]}, {"text":TEXT["AR"]["btn_app"]} ],
-            [ {"text":TEXT["AR"]["btn_send_phone"], "request_contact": True} ],
-            [ {"text":TEXT["AR"]["back"]} ]
-        ], "resize_keyboard": True}
+        if SHOW_PRODUCTS:
+            first  = [ {"text": btn_products_label("AR")}, {"text": TEXT["AR"]["btn_prices"]}, {"text": TEXT["AR"]["btn_about"]} ]
+            second = [ {"text": btn_content}, {"text": btn_app} ]
+        else:
+            first  = [ {"text": btn_content}, {"text": btn_app} ]
+            second = [ {"text": TEXT["AR"]["btn_prices"]}, {"text": TEXT["AR"]["btn_about"]} ]
+        return {
+            "keyboard":[
+                first,
+                second,
+                [ {"text": TEXT["AR"]["btn_send_phone"], "request_contact": True} ],
+                [ {"text": TEXT["AR"]["back"]} ]
+            ],
+            "resize_keyboard": True
+        }
+
     if lang == "EN":
-        return {"keyboard":[
-            [ {"text": btn_products_label("EN")}, {"text":TEXT["EN"]["btn_prices"]}, {"text":TEXT["EN"]["btn_about"]} ],
-            [ {"text":TEXT["EN"]["btn_content"]}, {"text":TEXT["EN"]["btn_app"]} ],
-            [ {"text":TEXT["EN"]["btn_send_phone"], "request_contact": True} ],
-            [ {"text":TEXT["EN"]["back"]} ]
-        ], "resize_keyboard": True}
-    return {"keyboard":[
-        [ {"text": btn_products_label("FA")}, {"text":TEXT["FA"]["btn_prices"]}, {"text":TEXT["FA"]["btn_about"]} ],
-        [ {"text":TEXT["FA"]["btn_content"]}, {"text":TEXT["FA"]["btn_app"]} ],
-        [ {"text":TEXT["FA"]["btn_send_phone"], "request_contact": True} ],
-        [ {"text":TEXT["FA"]["back"]} ]
-    ], "resize_keyboard": True}
+        if SHOW_PRODUCTS:
+            first  = [ {"text": btn_products_label("EN")}, {"text": TEXT["EN"]["btn_prices"]}, {"text": TEXT["EN"]["btn_about"]} ]
+            second = [ {"text": btn_content}, {"text": btn_app} ]
+        else:
+            first  = [ {"text": btn_content}, {"text": btn_app} ]
+            second = [ {"text": TEXT["EN"]["btn_prices"]}, {"text": TEXT["EN"]["btn_about"]} ]
+        return {
+            "keyboard":[
+                first,
+                second,
+                [ {"text": TEXT["EN"]["btn_send_phone"], "request_contact": True} ],
+                [ {"text": TEXT["EN"]["back"]} ]
+            ],
+            "resize_keyboard": True
+        }
+
+    # FA
+    if SHOW_PRODUCTS:
+        first  = [ {"text": btn_products_label("FA")}, {"text": TEXT["FA"]["btn_prices"]}, {"text": TEXT["FA"]["btn_about"]} ]
+        second = [ {"text": btn_content}, {"text": btn_app} ]
+    else:
+        first  = [ {"text": btn_content}, {"text": btn_app} ]
+        second = [ {"text": TEXT["FA"]["btn_prices"]}, {"text": TEXT["FA"]["btn_about"]} ]
+    return {
+        "keyboard":[
+            first,
 
 def confirm_keyboard(lang: str):
     return {"keyboard":[[{"text":TEXT[lang]["btn_confirm"]}],[{"text":TEXT[lang]["back"]}]], "resize_keyboard": True}
