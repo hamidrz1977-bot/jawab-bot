@@ -146,25 +146,25 @@ def reply_keyboard(lang: str):
     return {"keyboard":[[{"text":"منو 🗂"},{"text":"پشتیبانی 🛟"}],[{"text":"زبان 🌐"}]],"resize_keyboard":True}
 
 def menu_keyboard(lang: str):
-    # لیبل‌های محتوا و اپ (اگر در TEXT نبود، پیش‌فرض بگذار)
-    btn_content = TEXT[lang].get(
-        "btn_content",
-        "🧩 پکیج‌های محتوا" if lang == "FA" else ("🧩 باقات المحتوى" if lang == "AR" else "🧩 Content Packages")
-    )
-    btn_app = TEXT[lang].get(
-        "btn_app",
-        "🤖 پلان‌های اپ Jawab" if lang == "FA" else ("🤖 خطط تطبيق Jawab" if lang == "AR" else "🤖 Jawab App Plans")
-    )
+    show_products = str(os.getenv("SHOW_PRODUCTS", "0")).strip().lower() in ("1", "true", "yes")
 
-    if lang == "AR":
-        if SHOW_PRODUCTS:
-            first  = [ {"text": btn_products_label("AR")}, {"text": TEXT["AR"]["btn_prices"]}, {"text": TEXT["AR"]["btn_about"]} ]
-            second = [ {"text": btn_content}, {"text": btn_app} ]
-        else:
-            first  = [ {"text": btn_content}, {"text": btn_app} ]
-            second = [ {"text": TEXT["AR"]["btn_prices"]}, {"text": TEXT["AR"]["btn_about"]} ]
-        return {
-            "keyboard":[
+    L = (lang or "FA").upper()
+    T = TEXT[L]
+    btn_products = btn_products_label(L)
+
+    rows = []
+    if show_products:
+        rows.append([{"text": btn_products}, {"text": T["btn_prices"]}, {"text": T["btn_about"]}])
+        rows.append([{"text": T["btn_content"]}, {"text": T["btn_app"]}])
+    else:
+        rows.append([{"text": T["btn_content"]}, {"text": T["btn_app"]}])
+        rows.append([{"text": T["btn_prices"]}, {"text": T["btn_about"]}])
+
+    rows.append([{"text": T["btn_send_phone"], "request_contact": True}])
+    rows.append([{"text": T["back"]}])
+
+    return {"keyboard": rows, "resize_keyboard": True}
+
                 first,
                 second,
                 [ {"text": TEXT["AR"]["btn_send_phone"], "request_contact": True} ],
