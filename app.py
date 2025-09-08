@@ -149,57 +149,28 @@ def menu_keyboard(lang: str):
     show_products = str(os.getenv("SHOW_PRODUCTS", "0")).strip().lower() in ("1", "true", "yes")
 
     L = (lang or "FA").upper()
-    T = TEXT[L]
+    T = TEXT[L]  # متن‌های زبان فعلی
+
+    # برچسب «محصولات» بر اساس زبان
     btn_products = btn_products_label(L)
 
     rows = []
     if show_products:
+        # ردیف 1: محصولات | قیمت‌ها | درباره ما
         rows.append([{"text": btn_products}, {"text": T["btn_prices"]}, {"text": T["btn_about"]}])
+        # ردیف 2: پکیج‌های محتوا | پلان‌های اپ
         rows.append([{"text": T["btn_content"]}, {"text": T["btn_app"]}])
     else:
+        # بدون محصولات
         rows.append([{"text": T["btn_content"]}, {"text": T["btn_app"]}])
         rows.append([{"text": T["btn_prices"]}, {"text": T["btn_about"]}])
 
+    # ردیف 3: ارسال شماره
     rows.append([{"text": T["btn_send_phone"], "request_contact": True}])
+    # ردیف 4: بازگشت
     rows.append([{"text": T["back"]}])
 
     return {"keyboard": rows, "resize_keyboard": True}
-
-                first,
-                second,
-                [ {"text": TEXT["AR"]["btn_send_phone"], "request_contact": True} ],
-                [ {"text": TEXT["AR"]["back"]} ]
-            ],
-            "resize_keyboard": True
-        }
-
-    if lang == "EN":
-        if SHOW_PRODUCTS:
-            first  = [ {"text": btn_products_label("EN")}, {"text": TEXT["EN"]["btn_prices"]}, {"text": TEXT["EN"]["btn_about"]} ]
-            second = [ {"text": btn_content}, {"text": btn_app} ]
-        else:
-            first  = [ {"text": btn_content}, {"text": btn_app} ]
-            second = [ {"text": TEXT["EN"]["btn_prices"]}, {"text": TEXT["EN"]["btn_about"]} ]
-        return {
-            "keyboard":[
-                first,
-                second,
-                [ {"text": TEXT["EN"]["btn_send_phone"], "request_contact": True} ],
-                [ {"text": TEXT["EN"]["back"]} ]
-            ],
-            "resize_keyboard": True
-        }
-
-    # FA
-    if SHOW_PRODUCTS:
-        first  = [ {"text": btn_products_label("FA")}, {"text": TEXT["FA"]["btn_prices"]}, {"text": TEXT["FA"]["btn_about"]} ]
-        second = [ {"text": btn_content}, {"text": btn_app} ]
-    else:
-        first  = [ {"text": btn_content}, {"text": btn_app} ]
-        second = [ {"text": TEXT["FA"]["btn_prices"]}, {"text": TEXT["FA"]["btn_about"]} ]
-    return {
-        "keyboard":[
-            first,
 
 def confirm_keyboard(lang: str):
     return {"keyboard":[[{"text":TEXT[lang]["btn_confirm"]}],[{"text":TEXT[lang]["back"]}]], "resize_keyboard": True}
