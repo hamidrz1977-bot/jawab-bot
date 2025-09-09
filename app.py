@@ -188,8 +188,10 @@ def load_products(lang):
     return parse_env_products(lang)
 
 # ============== Core ==============
-@app.get("/healthz"); @app.get("/health")
-def health(): return jsonify(ok=True)
+@app.get("/healthz")
+@app.get("/health")
+def health(): 
+    return jsonify(ok=True)
 
 @app.get("/")
 def root(): return "OK"
