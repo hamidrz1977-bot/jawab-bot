@@ -56,8 +56,17 @@ def send_text(chat_id, text, keyboard=None, parse_mode=None):
         print("send_text error:", e)
 
 def reply_keyboard_layout(rows):
-    # rows:list[list[str]]
-    return {"keyboard": [[{"text": c} for c in r] for r in rows], "resize_keyboard": True}
+    # rows: list[list[str|dict]]
+    kb_rows = []
+    for r in rows:
+        row = []
+        for c in r:
+            if isinstance(c, dict):
+                row.append(c)                   # اجازه به دکمه‌های خاص مثل request_contact
+            else:
+                row.append({"text": c})
+        kb_rows.append(row)
+    return {"keyboard": kb_rows, "resize_keyboard": True}
 
 def contains_any(text, needles):
     # حذف ایموجی‌ها و نرمال‌سازی فاصله/حروف
@@ -143,7 +152,7 @@ def reply_keyboard(lang):
     rows = [
         [T["btn_content"], T["btn_app"]],
         [T["btn_prices"],  T["btn_about"]],
-        [T["btn_send_phone"]],
+        [ {"text": T["btn_send_phone"], "request_contact": True} ],
         [T["back"]]
     ]
     return reply_keyboard_layout(rows)
@@ -282,7 +291,7 @@ def process_update(update: dict):
             LEAD_CONTEXT[chat_id] = f"content:{key}"
             kb = reply_keyboard_layout([
                 [TEXT[lang]["btn_order"]],
-                [TEXT[lang]["btn_send_phone"]],
+                [ {"text": TEXT[lang]["btn_send_phone"], "request_contact": True} ],
                 [PKG_LABELS[lang]["back"], TEXT[lang]["btn_cancel"]]
             ])
             send_text(chat_id, msg, keyboard=kb); return {"ok": True}
@@ -294,7 +303,7 @@ def process_update(update: dict):
             LEAD_CONTEXT[chat_id] = f"app:{key}"
             kb = reply_keyboard_layout([
                 [TEXT[lang]["btn_order"]],
-                [TEXT[lang]["btn_send_phone"]],
+                [ {"text": TEXT[lang]["btn_send_phone"], "request_contact": True} ],
                 [PKG_LABELS[lang]["back"], TEXT[lang]["btn_cancel"]]
             ])
             send_text(chat_id, msg, keyboard=kb); return {"ok": True}
@@ -304,8 +313,14 @@ def process_update(update: dict):
         phone = get_user_phone(chat_id)
         if not phone:
             LEAD_CONTEXT[chat_id] = (LEAD_CONTEXT.get(chat_id) or "lead")
-            send_text(chat_id, TEXT[lang]["need_phone"],
-                      keyboard=reply_keyboard_layout([[TEXT[lang]["btn_send_phone"]],[PKG_LABELS[lang]["back"]]]))
+            send_text(
+                chat_id,
+                TEXT[lang]["need_phone"],
+                keyboard=reply_keyboard_layout([
+                    [{"text": TEXT[lang]["btn_send_phone"], "request_contact": True}],
+                    [PKG_LABELS[lang]["back"]]
+                ])
+            )  # ← این پرانتز اضافه شد
             return {"ok": True}
         ctx = LEAD_CONTEXT.get(chat_id, "lead")
         oid = create_order(chat_id, ctx, 1, "")
