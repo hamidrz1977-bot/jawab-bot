@@ -38,7 +38,11 @@ app = Flask(__name__)
 
 # ---------- helpers ----------
 def contains_any(text, needles):
-    t = (text or "").strip().lower()
+    # ایموجی‌های رایج کیبورد رو حذف می‌کنیم تا مچ، وابسته به جای ایموجی نباشه
+    t = (text or "")
+    for emo in ["🧩", "🤖", "💰", "ℹ️", "📞", "🛟", "🗂"]:
+        t = t.replace(emo, "")
+    t = t.strip().lower()
     return any(n in t for n in [s.lower() for s in needles if s])
 
 def get_lang(user_lang=None):
@@ -282,10 +286,9 @@ def build_product_keyboard(items, lang):
 
 # ---------- rate limit ----------
 BUCKET = defaultdict(lambda: deque(maxlen=10))
-def rate_ok(uid: int, limit=5, window=5):
-    q = BUCKET[uid]; t = now(); q.append(t)
-    recent = [x for x in q if t - x <= window]
-    return len(recent) <= limit
+def rate_ok(uid: int, limit=50, window=2):
+    # برای تست، ریت‌لیمیت را خیلی شُل می‌کنیم
+    return True
 
 # ---------- helpers: env text sections ----------
 def get_env_text(keys):
@@ -331,6 +334,7 @@ def process_update(update: dict):
     chat = message.get("chat") or {}
     chat_id = chat.get("id")
     text = (message.get("text") or "").strip()
+    print(f"[DBG] clicked_text={repr(text)}")
     contact = message.get("contact") or {}
 
     if not chat_id: return {"ok": True}
