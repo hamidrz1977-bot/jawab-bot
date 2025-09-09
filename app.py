@@ -184,6 +184,28 @@ def menu_keyboard(lang: str):
 
     L = (lang or "FA").upper()
     T = TEXT[L]  # متن‌های زبان فعلی
+    # === Submenus for Content & App packages ===
+PKG_LABELS = {
+    "FA": {"bronze":"Bronze", "silver":"Silver", "gold":"Gold", "diamond":"Diamond", "back":"↩️ بازگشت"},
+    "EN": {"bronze":"Bronze", "silver":"Silver", "gold":"Gold", "diamond":"Diamond", "back":"↩️ Back"},
+    "AR": {"bronze":"Bronze", "silver":"Silver", "gold":"Gold", "diamond":"Diamond", "back":"↩️ رجوع"}
+}
+
+def content_packages_keyboard(lang):
+    L = PKG_LABELS.get(lang, PKG_LABELS["EN"])
+    return reply_keyboard_layout([
+        [f"🧩 {L['bronze']}", f"🧩 {L['silver']}"],
+        [f"🧩 {L['gold']}",   f"🧩 {L['diamond']}"],
+        [L["back"]]
+    ])
+
+def app_plans_keyboard(lang):
+    L = PKG_LABELS.get(lang, PKG_LABELS["EN"])
+    return reply_keyboard_layout([
+        [f"🤖 {L['bronze']}", f"🤖 {L['silver']}"],
+        [f"🤖 {L['gold']}",   f"🤖 {L['diamond']}"],
+        [L["back"]]
+    ])
 
     # برچسب «محصولات» بر اساس زبان
     btn_products = btn_products_label(L)
@@ -527,18 +549,14 @@ def _handle_telegram_update(update: dict):
         send_text(chat_id, body, keyboard=menu_keyboard(lang)); return {"ok": True}
 
     # پکیج‌های محتوا
-    if text in [TEXT["FA"]["btn_content"], TEXT["EN"]["btn_content"], TEXT["AR"]["btn_content"]]:
-        LEAD_CONTEXT[chat_id] = "content"
-        body = content_text(lang) or TEXT[lang]["not_config"]
-        kb = {"keyboard":[[{"text": TEXT[lang]["btn_request"]}], [{"text": TEXT[lang]["back"]}]], "resize_keyboard": True}
-        send_text(chat_id, body, keyboard=kb); return {"ok": True}
+    if text in ["پکیج‌های محتوا", "🧩 پکیج‌های محتوا", "Content Packages", "🧩 Content Packages", "باقات المحتوى", "🧩 باقات المحتوى"]:
+    send_text(chat_id, "یک پکیج را انتخاب کنید:", keyboard=content_packages_keyboard(lang))
+    return jsonify({"ok": True})
 
     # پلان‌های اپ
-    if text in [TEXT["FA"]["btn_app"], TEXT["EN"]["btn_app"], TEXT["AR"]["btn_app"]]:
-        LEAD_CONTEXT[chat_id] = "app"
-        body = app_plans_text(lang) or TEXT[lang]["not_config"]
-        kb = {"keyboard":[[{"text": TEXT[lang]["btn_request"]}], [{"text": TEXT[lang]["back"]}]], "resize_keyboard": True}
-        send_text(chat_id, body, keyboard=kb); return {"ok": True}
+    if text in ["پلان‌های اپ Jawab", "🤖 پلان‌های اپ Jawab", "Jawab App Plans", "🤖 Jawab App Plans", "خطط تطبيق Jawab", "🤖 خطط تطبيق Jawab"]:
+    send_text(chat_id, "یک پلن را انتخاب کنید:", keyboard=app_plans_keyboard(lang))
+    return jsonify({"ok": True})
 
     # ثبت درخواست (Lead)
     if text == TEXT[lang]["btn_request"]:
@@ -769,6 +787,48 @@ def telegram():
         "بازگشت", "↩️ بازگشت", "رجوع", "العودة", "🔙 رجوع", "Back", "🔙 Back"
     ]
 
+    CONTENT_BTN_ALIASES = {
+    "FA": {
+        "bronze": ["🧩 Bronze","Bronze"],
+        "silver": ["🧩 Silver","Silver"],
+        "gold":   ["🧩 Gold","Gold"],
+        "diamond":["🧩 Diamond","Diamond"],
+    },
+    "EN": {
+        "bronze": ["🧩 Bronze","Bronze"],
+        "silver": ["🧩 Silver","Silver"],
+        "gold":   ["🧩 Gold","Gold"],
+        "diamond":["🧩 Diamond","Diamond"],
+    },
+    "AR": {
+        "bronze": ["🧩 Bronze","Bronze"],
+        "silver": ["🧩 Silver","Silver"],
+        "gold":   ["🧩 Gold","Gold"],
+        "diamond":["🧩 Diamond","Diamond"],
+    },
+}
+
+APP_BTN_ALIASES = {
+    "FA": {
+        "bronze": ["🤖 Bronze","Bronze"],
+        "silver": ["🤖 Silver","Silver"],
+        "gold":   ["🤖 Gold","Gold"],
+        "diamond":["🤖 Diamond","Diamond"],
+    },
+    "EN": {
+        "bronze": ["🤖 Bronze","Bronze"],
+        "silver": ["🤖 Silver","Silver"],
+        "gold":   ["🤖 Gold","Gold"],
+        "diamond":["🤖 Diamond","Diamond"],
+    },
+    "AR": {
+        "bronze": ["🤖 Bronze","Bronze"],
+        "silver": ["🤖 Silver","Silver"],
+        "gold":   ["🤖 Gold","Gold"],
+        "diamond":["🤖 Diamond","Diamond"],
+    },
+}
+
     PRICES_ALIASES = [
         TEXT["FA"]["btn_prices"], TEXT["EN"]["btn_prices"], TEXT["AR"]["btn_prices"],
         "قیمت‌ها", "Prices", "الأسعار"
@@ -902,6 +962,21 @@ def telegram():
     send_text(chat_id, TEXT[lang]["unknown"], keyboard=reply_keyboard(lang))
     log_message(chat_id, "unknown", "out")
     return jsonify({"ok": True})
+
+    # --- Content package details ---
+    for key in ["bronze","silver","gold","diamond"]:
+        if text in CONTENT_BTN_ALIASES.get(lang, CONTENT_BTN_ALIASES["EN"])[key]:
+            msg = os.getenv(f"CONTENT_{key.upper()}_{lang}") or "Details coming soon."
+            send_text(chat_id, msg, keyboard=content_packages_keyboard(lang))
+            return jsonify({"ok": True})
+            
+    # --- App plan details ---
+    for key in ["bronze","silver","gold","diamond"]:
+        if text in APP_BTN_ALIASES.get(lang, APP_BTN_ALIASES["EN"])[key]:
+            msg = os.getenv(f"APP_{key.upper()}_{lang}") or "Details coming soon."
+            send_text(chat_id, msg, keyboard=app_plans_keyboard(lang))
+            return jsonify({"ok": True})
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
