@@ -544,6 +544,56 @@ def _handle_telegram_update(update: dict):
         send_text(chat_id, TEXT[lang]["choose"], keyboard=menu_keyboard(lang))
         return jsonify({"ok": True})
 
+# === Aliases for Prices & Package Buttons ===
+
+PRICES_ALIASES = [
+    "قیمت‌ها", "💰 قیمت‌ها",
+    "Prices", "💰 Prices",
+    "الأسعار", "💰 الأسعار"
+]
+
+CONTENT_BTN_ALIASES = {
+    "FA": {
+        "bronze": ["🧩 Bronze","Bronze"],
+        "silver": ["🧩 Silver","Silver"],
+        "gold":   ["🧩 Gold","Gold"],
+        "diamond":["🧩 Diamond","Diamond"],
+    },
+    "EN": {
+        "bronze": ["🧩 Bronze","Bronze"],
+        "silver": ["🧩 Silver","Silver"],
+        "gold":   ["🧩 Gold","Gold"],
+        "diamond":["🧩 Diamond","Diamond"],
+    },
+    "AR": {
+        "bronze": ["🧩 Bronze","Bronze"],
+        "silver": ["🧩 Silver","Silver"],
+        "gold":   ["🧩 Gold","Gold"],
+        "diamond":["🧩 Diamond","Diamond"],
+    },
+}
+
+APP_BTN_ALIASES = {
+    "FA": {
+        "bronze": ["🤖 Bronze","Bronze"],
+        "silver": ["🤖 Silver","Silver"],
+        "gold":   ["🤖 Gold","Gold"],
+        "diamond":["🤖 Diamond","Diamond"],
+    },
+    "EN": {
+        "bronze": ["🤖 Bronze","Bronze"],
+        "silver": ["🤖 Silver","Silver"],
+        "gold":   ["🤖 Gold","Gold"],
+        "diamond":["🤖 Diamond","Diamond"],
+    },
+    "AR": {
+        "bronze": ["🤖 Bronze","Bronze"],
+        "silver": ["🤖 Silver","Silver"],
+        "gold":   ["🤖 Gold","Gold"],
+        "diamond":["🤖 Diamond","Diamond"],
+    },
+}
+
     # قیمت‌ها / درباره ما
     if text in [TEXT["FA"]["btn_prices"], TEXT["EN"]["btn_prices"], TEXT["AR"]["btn_prices"], "قیمت‌ها","Prices","الأسعار"]:
         body = get_section("PRICES", lang) or TEXT[lang]["not_config"]
