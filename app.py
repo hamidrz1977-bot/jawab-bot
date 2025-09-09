@@ -8,6 +8,10 @@ from time import time as now
 # === PATCH 1: helpers for welcome & support ===
 import os
 
+def contains_any(text, needles):
+    t = (text or "").strip().lower()
+    return any(n in t for n in [s.lower() for s in needles if s])
+
 def get_lang(user_lang=None):
     # اگر در کدت زبان کاربر را داری، همان را بده؛ وگرنه از DEFAULT_LANG
     lang = (user_lang or os.getenv("DEFAULT_LANG", "FA")).upper()
@@ -549,14 +553,14 @@ def _handle_telegram_update(update: dict):
         send_text(chat_id, body, keyboard=menu_keyboard(lang)); return {"ok": True}
 
     # پکیج‌های محتوا
-    if text in ["پکیج‌های محتوا", "🧩 پکیج‌های محتوا", "Content Packages", "🧩 Content Packages", "باقات المحتوى", "🧩 باقات المحتوى"]:
-    send_text(chat_id, "یک پکیج را انتخاب کنید:", keyboard=content_packages_keyboard(lang))
-    return jsonify({"ok": True})
+    if contains_any(text, ["پکیج‌های محتوا", "content packages", "باقات المحتوى"]):
+        send_text(chat_id, "یک پکیج را انتخاب کنید:", keyboard=content_packages_keyboard(lang))
+        return jsonify({"ok": True})
 
     # پلان‌های اپ
-    if text in ["پلان‌های اپ Jawab", "🤖 پلان‌های اپ Jawab", "Jawab App Plans", "🤖 Jawab App Plans", "خطط تطبيق Jawab", "🤖 خطط تطبيق Jawab"]:
-    send_text(chat_id, "یک پلن را انتخاب کنید:", keyboard=app_plans_keyboard(lang))
-    return jsonify({"ok": True})
+    if contains_any(text, ["پلان‌های اپ", "jawab app plans", "خطط تطبيق"]):
+        send_text(chat_id, "یک پلن را انتخاب کنید:", keyboard=app_plans_keyboard(lang))
+        return jsonify({"ok": True})
 
     # ثبت درخواست (Lead)
     if text == TEXT[lang]["btn_request"]:
@@ -861,6 +865,8 @@ APP_BTN_ALIASES = {
 
     def _get_section(sec: str) -> str:
         return (os.environ.get(f"{sec}_{lang}", "") or "").strip()
+        
+    print(f"[DBG] text clicked: {repr(text)}")
 
     # منو
     if text in MENU_ALIASES:
@@ -965,17 +971,19 @@ APP_BTN_ALIASES = {
 
     # --- Content package details ---
     for key in ["bronze","silver","gold","diamond"]:
-        if text in CONTENT_BTN_ALIASES.get(lang, CONTENT_BTN_ALIASES["EN"])[key]:
+        if contains_any(text, [f"🧩 {key}", key]):   # کافی است bronze/silver/... توی متن باشد
             msg = os.getenv(f"CONTENT_{key.upper()}_{lang}") or "Details coming soon."
             send_text(chat_id, msg, keyboard=content_packages_keyboard(lang))
             return jsonify({"ok": True})
+
             
     # --- App plan details ---
     for key in ["bronze","silver","gold","diamond"]:
-        if text in APP_BTN_ALIASES.get(lang, APP_BTN_ALIASES["EN"])[key]:
+        if contains_any(text, [f"🤖 {key}", key]):
             msg = os.getenv(f"APP_{key.upper()}_{lang}") or "Details coming soon."
             send_text(chat_id, msg, keyboard=app_plans_keyboard(lang))
             return jsonify({"ok": True})
+
 
 
 if __name__ == "__main__":
