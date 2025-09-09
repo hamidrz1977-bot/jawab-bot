@@ -5,7 +5,41 @@ from collections import defaultdict, deque
 from time import time as now
 
 # ---------- ENV ----------
-SHOW_PRODUCTS = (os.getenv("SHOW_PRODUCTS", "0").strip().lower() in ["1","true","yes","on"])
+# === PATCH 1: helpers for welcome & support ===
+import os
+
+def get_lang(user_lang=None):
+    # اگر در کدت زبان کاربر را داری، همان را بده؛ وگرنه از DEFAULT_LANG
+    lang = (user_lang or os.getenv("DEFAULT_LANG", "FA")).upper()
+    return "FA" if lang not in ("FA","EN","AR") else lang
+
+def get_welcome(lang):
+    # متون WELCOME_* را از ENV می‌خواند؛ EN فالبک است
+    fallback = os.getenv("WELCOME_EN") or "Welcome to Arabia Social"
+    return os.getenv(f"WELCOME_{lang}", fallback)
+
+def support_message():
+    # چهار کانال پشتیبانی را از ENV می‌سازد (هرکدام خالی بود، نمایش نمی‌دهد)
+    tg  = (os.getenv("SUPPORT_TG") or "").strip()
+    wa  = (os.getenv("SUPPORT_WHATSAPP") or "").strip()
+    ig  = (os.getenv("SUPPORT_INSTAGRAM") or "").strip()
+    em  = (os.getenv("SUPPORT_EMAIL") or "").strip()
+
+    lines = ["🛟 راه‌های ارتباطی:"]
+    if tg:
+        if not tg.startswith("@"): tg = "@"+tg
+        lines.append(f"• Telegram: {tg}")
+    if wa:
+        lines.append(f"• WhatsApp: {wa}")
+    if ig:
+        if not ig.startswith("@"): ig = "@"+ig
+        lines.append(f"• Instagram: {ig}")
+    if em:
+        lines.append(f"• Email: {em}")
+
+    return "\n".join(lines)
+
+SHOW_PRODUCTS = os.getenv("SHOW_PRODUCTS", "0").strip().lower() in ["1","true","yes","on"]
 
 BOT_TOKEN = os.environ.get("TG_BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN")
 API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage" if BOT_TOKEN else None
@@ -377,7 +411,7 @@ def _handle_telegram_update(update: dict):
                 set_user_source(chat_id, parts[1].strip()[:64])
             except Exception:
                 pass
-        send_text(chat_id, TEXT[lang]["welcome"], keyboard=reply_keyboard(lang))
+        send_text(chat_id, get_welcome(lang), keyboard=reply_keyboard(lang))
         log_message(chat_id, text, "in"); log_message(chat_id, "welcome", "out")
         return {"ok": True}
 
@@ -641,7 +675,7 @@ def telegram():
                 set_user_source(chat_id, parts[1].strip()[:64])
             except Exception:
                 pass
-        send_text(chat_id, TEXT[lang]["welcome"], keyboard=reply_keyboard(lang))
+        send_text(chat_id, get_welcome(lang), keyboard=reply_keyboard(lang))
         log_message(chat_id, text, "in")
         log_message(chat_id, "welcome", "out")
         return jsonify({"ok": True})
@@ -775,7 +809,7 @@ def telegram():
 
     # بازگشت (همیشه به صفحه اصلی)
     elif text.strip() in BACK_ALIASES:
-        send_text(chat_id, TEXT[lang]["welcome"], keyboard=reply_keyboard(lang))
+        send_text(chat_id, TEXT[lang]["choose"], keyboard=menu_keyboard(lang))
         return jsonify({"ok": True})
 
     # قیمت‌ها
@@ -855,7 +889,7 @@ def telegram():
 
     # پشتیبانی
     if text in ["پشتیبانی 🛟", "الدعم 🛟", "Support 🛟", "پشتیبانی", "الدعم", "Support"]:
-        send_text(chat_id, TEXT[lang]["support"], keyboard=reply_keyboard(lang))
+        send_text(chat_id, build_support_text(lang), keyboard=reply_keyboard(lang))
         return jsonify({"ok": True})
 
     # زبان (نمایش انتخاب)
