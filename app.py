@@ -834,8 +834,9 @@ APP_BTN_ALIASES = {
 }
 
     PRICES_ALIASES = [
-        TEXT["FA"]["btn_prices"], TEXT["EN"]["btn_prices"], TEXT["AR"]["btn_prices"],
-        "قیمت‌ها", "Prices", "الأسعار"
+        "قیمت‌ها", "💰 قیمت‌ها",
+        "Prices", "💰 Prices",
+        "الأسعار", "💰 الأسعار"
     ]
 
     ABOUT_ALIASES = [
